@@ -1,0 +1,25 @@
+{
+  "id": "ac811978",
+  "titulo": "Tapa de cámara reemplazada",
+  "descripcion": "",
+  "media": null,
+  "tipo": "Pavimento o vereda",
+  "lugar": "Calle o pasaje de barrio",
+  "riesgo": "Sin peligro",
+  "sector": "Moneda 800, Santiago",
+  "lat": -33.442,
+  "lon": -70.65,
+  "organismo": "MUNI",
+  "estado": "Resuelto",
+  "fecha": "2026-10-13T02:40:32",
+  "vistos": 0,
+  "resolucion": {
+    "si": 4,
+    "no": 0
+  },
+  "evidencias": [],
+  "historial": [
+    "13/10 02:40 · Reporte creado y derivado a Municipalidad",
+    "28/10 02:40 · Estado actualizado a 'Resuelto'"
+  ]
+}

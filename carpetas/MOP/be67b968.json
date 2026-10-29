@@ -1,0 +1,24 @@
+{
+  "id": "be67b968",
+  "titulo": "Bache profundo en pista bus",
+  "descripcion": "",
+  "media": null,
+  "tipo": "Pavimento o vereda",
+  "lugar": "Ruta o camino interurbano",
+  "riesgo": "Peligro inmediato",
+  "sector": "Gran Avenida 4200, San Miguel",
+  "lat": -33.4921,
+  "lon": -70.6523,
+  "organismo": "MOP",
+  "estado": "Pendiente",
+  "fecha": "2026-10-28T02:37:32",
+  "vistos": 3,
+  "resolucion": {
+    "si": 0,
+    "no": 0
+  },
+  "evidencias": [],
+  "historial": [
+    "28/10 02:37 · Reporte creado y derivado a MOP (Vialidad)"
+  ]
+}

@@ -1,0 +1,24 @@
+{
+  "id": "00c8b0de",
+  "titulo": "Basural",
+  "descripcion": "Calle peatonal llena de basura y desechos que no deja caminar a la gente",
+  "media": null,
+  "tipo": "Pavimento o vereda",
+  "lugar": "Calle o pasaje de barrio",
+  "riesgo": "Sin peligro",
+  "sector": "Ubicación Mapa",
+  "lat": -33.45842956913196,
+  "lon": -70.66305220127789,
+  "organismo": "MUNI",
+  "estado": "Pendiente",
+  "fecha": "2026-10-28T04:01:54",
+  "vistos": 1,
+  "resolucion": {
+    "si": 0,
+    "no": 0
+  },
+  "evidencias": [],
+  "historial": [
+    "28/10 04:01 · Reporte creado y derivado a Municipalidad"
+  ]
+}

@@ -1,0 +1,25 @@
+{
+  "id": "f989323c",
+  "titulo": "Luminaria reparada",
+  "descripcion": "",
+  "media": null,
+  "tipo": "Alumbrado público",
+  "lugar": "Calle o pasaje de barrio",
+  "riesgo": "Sin peligro",
+  "sector": "Manuel Montt 500, Providencia",
+  "lat": -33.432,
+  "lon": -70.615,
+  "organismo": "MUNI",
+  "estado": "Resuelto",
+  "fecha": "2026-10-19T02:40:32",
+  "vistos": 0,
+  "resolucion": {
+    "si": 6,
+    "no": 1
+  },
+  "evidencias": [],
+  "historial": [
+    "19/10 02:40 · Reporte creado y derivado a Municipalidad",
+    "28/10 02:40 · Estado actualizado a 'Resuelto'"
+  ]
+}

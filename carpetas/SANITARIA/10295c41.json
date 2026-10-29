@@ -1,0 +1,24 @@
+{
+  "id": "10295c41",
+  "titulo": "Filtración de agua en vía pública",
+  "descripcion": "",
+  "media": null,
+  "tipo": "Agua o alcantarillado",
+  "lugar": "Calle o pasaje de barrio",
+  "riesgo": "Peligro inmediato",
+  "sector": "Av. Pajaritos 3000, Maipú",
+  "lat": -33.5103,
+  "lon": -70.7573,
+  "organismo": "SANITARIA",
+  "estado": "Pendiente",
+  "fecha": "2026-10-28T02:10:32",
+  "vistos": 4,
+  "resolucion": {
+    "si": 0,
+    "no": 0
+  },
+  "evidencias": [],
+  "historial": [
+    "28/10 02:10 · Reporte creado y derivado a Empresa sanitaria"
+  ]
+}

@@ -1,0 +1,24 @@
+{
+  "id": "25a67455",
+  "titulo": "Fachada deteriorada",
+  "descripcion": "",
+  "media": null,
+  "tipo": "Edificio o estructura",
+  "lugar": "Edificio o monumento histórico",
+  "riesgo": "Posible peligro",
+  "sector": "Av. Matucana 800, Quinta Normal",
+  "lat": -33.4412,
+  "lon": -70.6814,
+  "organismo": "CMN",
+  "estado": "En revisión",
+  "fecha": "2026-10-24T21:37:32",
+  "vistos": 2,
+  "resolucion": {
+    "si": 0,
+    "no": 0
+  },
+  "evidencias": [],
+  "historial": [
+    "24/10 21:37 · Reporte creado y derivado a CMN (Monumentos Nacionales)"
+  ]
+}

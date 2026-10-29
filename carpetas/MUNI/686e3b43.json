@@ -1,0 +1,24 @@
+{
+  "id": "686e3b43",
+  "titulo": "Luminarias apagadas en plaza",
+  "descripcion": "",
+  "media": null,
+  "tipo": "Alumbrado público",
+  "lugar": "Calle o pasaje de barrio",
+  "riesgo": "Posible peligro",
+  "sector": "Av. Apoquindo 4800, Las Condes",
+  "lat": -33.4115,
+  "lon": -70.5702,
+  "organismo": "MUNI",
+  "estado": "Pendiente",
+  "fecha": "2026-10-28T01:36:32",
+  "vistos": 1,
+  "resolucion": {
+    "si": 0,
+    "no": 0
+  },
+  "evidencias": [],
+  "historial": [
+    "28/10 01:36 · Reporte creado y derivado a Municipalidad"
+  ]
+}

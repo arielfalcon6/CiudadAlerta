@@ -1,0 +1,24 @@
+{
+  "id": "73c4b48d",
+  "titulo": "Hoyo grande en la calzada",
+  "descripcion": "",
+  "media": null,
+  "tipo": "Pavimento o vereda",
+  "lugar": "Avenida principal",
+  "riesgo": "Posible peligro",
+  "sector": "Av. Bernardo O'Higgins 1450, Santiago",
+  "lat": -33.4452,
+  "lon": -70.662,
+  "organismo": "SERVIU",
+  "estado": "Pendiente",
+  "fecha": "2026-10-28T02:01:32",
+  "vistos": 4,
+  "resolucion": {
+    "si": 0,
+    "no": 0
+  },
+  "evidencias": [],
+  "historial": [
+    "28/10 02:01 · Reporte creado y derivado a SERVIU"
+  ]
+}

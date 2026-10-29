@@ -1,0 +1,24 @@
+{
+  "id": "fa490971",
+  "titulo": "Tapa de alcantarillado suelta",
+  "descripcion": "",
+  "media": null,
+  "tipo": "Agua o alcantarillado",
+  "lugar": "Calle o pasaje de barrio",
+  "riesgo": "Posible peligro",
+  "sector": "Av. Ecuador 3500, Estación Central",
+  "lat": -33.4524,
+  "lon": -70.6882,
+  "organismo": "SANITARIA",
+  "estado": "Pendiente",
+  "fecha": "2026-10-28T02:27:32",
+  "vistos": 4,
+  "resolucion": {
+    "si": 0,
+    "no": 0
+  },
+  "evidencias": [],
+  "historial": [
+    "28/10 02:27 · Reporte creado y derivado a Empresa sanitaria"
+  ]
+}
