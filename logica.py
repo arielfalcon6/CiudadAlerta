@@ -195,7 +195,8 @@ COORD_COMUNAS = {
 }
 
 def sembrar_demo():
-    if any(CARPETAS.glob("*/*.json")):
+    # Solo siembra si hay pocos reportes: así un reporte de prueba suelto no bloquea la demo.
+    if sum(1 for _ in CARPETAS.glob("*/*.json")) >= 10:
         return
     rnd = random.Random(42)
     ahora = datetime.now()
