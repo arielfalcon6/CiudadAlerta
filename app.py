@@ -127,6 +127,15 @@ def obtener_direccion_calle_comuna(lat, lon):
         pass
     return "Ubicación seleccionada, Santiago"
 
+
+def direccion_actual():
+    """Dirección del punto marcado en el mapa. Solo consulta el servicio cuando cambian las coordenadas."""
+    coords = (st.session_state.lat_sel, st.session_state.lon_sel)
+    if st.session_state.get("direccion_coords") != coords:
+        st.session_state.direccion_texto = obtener_direccion_calle_comuna(*coords)
+        st.session_state.direccion_coords = coords
+    return st.session_state.direccion_texto
+
 # ---------------------------------------------------------------- VISIÓN CIUDADANO
 
 
@@ -173,6 +182,8 @@ def selector_mapa_interactivo():
             st.session_state.lat_sel = click_lat
             st.session_state.lon_sel = click_lon
             recargar_app()
+
+    st.caption(f"📍 Dirección del reporte: **{direccion_actual()}**")
 
 
 def render_resumen_reporte(r):
@@ -299,7 +310,7 @@ def formulario():
             nombre_archivo = getattr(media, "name", f"foto_camara_{v}.png")
             ruta = L.guardar_archivo(nombre_archivo, media.getvalue())
             
-        dir_final = st.session_state.get("direccion_texto", "Ubicación Mapa")
+        dir_final = direccion_actual()
         
         r = L.crear_reporte(
             titulo, descripcion, tipo, lugar, riesgo, 
