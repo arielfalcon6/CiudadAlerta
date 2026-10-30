@@ -515,13 +515,34 @@ def vista_municipalidad():
 
             comuna_sel = "Santiago"
             if k == "MUNI":
+                # Reportes de la Municipalidad por comuna (total y abiertos)
+                por_comuna, abiertos_comuna = {}, {}
+                for r in items:
+                    c = extraer_comuna_estricta(r.get("sector", ""))
+                    por_comuna[c] = por_comuna.get(c, 0) + 1
+                    if r["estado"] != "Resuelto":
+                        abiertos_comuna[c] = abiertos_comuna.get(c, 0) + 1
+
                 comuna_sel = st.selectbox(
                     "🔍 Busca o selecciona la comuna de la Municipalidad:",
                     options=COMUNAS_OFICIALES,
                     index=COMUNAS_OFICIALES.index("Santiago"),
                     key="filtro_comuna_muni",
-                    help="Haz clic y escribe el nombre de la comuna para buscar"
+                    format_func=lambda c: f"{c} ({por_comuna.get(c, 0)})",
+                    help="El número entre paréntesis es la cantidad de reportes de esa comuna. "
+                         "Haz clic y escribe el nombre para buscar."
                 )
+
+                with st.expander("📊 Resumen de reportes por comuna"):
+                    filas_c = [{"Comuna": c, "Reportes": n, "Abiertos": abiertos_comuna.get(c, 0)}
+                               for c, n in por_comuna.items() if c in COMUNAS_OFICIALES]
+                    if filas_c:
+                        st.dataframe(pd.DataFrame(sorted(filas_c, key=lambda f: -f["Reportes"])),
+                                     hide_index=True)
+                    sin_comuna = sum(n for c, n in por_comuna.items() if c not in COMUNAS_OFICIALES)
+                    if sin_comuna:
+                        st.caption(f"⚠️ {sin_comuna} reporte(s) tienen una dirección sin comuna reconocida "
+                                   "y no aparecen en ninguna comuna del selector.")
                 items = [r for r in items if extraer_comuna_estricta(r.get("sector", "")) == comuna_sel]
                 
                 if items:
