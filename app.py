@@ -309,7 +309,8 @@ def formulario():
         st.session_state[key_foto_cam] = None
         st.session_state[key_mostrar_cam] = False
         st.session_state.reporte_exito = r
-        st.session_
+        st.session_state.ver += 1
+        recargar_app()
 
 
 def tarjeta_ciudadano(r):
