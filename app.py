@@ -395,6 +395,51 @@ def vista_ciudadano():
             tarjeta_ciudadano(r)
 
 # ---------------------------------------------------------------- VISIÓN AUTORIDAD
+def tabla_exportable(reportes, prio):
+    """Tabla lista para exportar: encabezados legibles y una fila por reporte."""
+    filas = []
+    for r in reportes:
+        foco = prio.get((r["tipo"], r["sector"]))
+        abierto = r["estado"] != "Resuelto" and foco is not None
+        c = r["resolucion"]
+        filas.append({
+            "ID": r["id"],
+            "Fecha": datetime.fromisoformat(r["fecha"]).strftime("%Y-%m-%d %H:%M"),
+            "Título": r["titulo"],
+            "Descripción": r["descripcion"],
+            "Tipo de problema": r["tipo"],
+            "Lugar": r["lugar"],
+            "Nivel de peligro": r["riesgo"],
+            "Ubicación": r["sector"],
+            "Comuna": extraer_comuna_estricta(r.get("sector", "")),
+            "Latitud": round(r["lat"], 5) if "lat" in r else None,
+            "Longitud": round(r["lon"], 5) if "lon" in r else None,
+            "Organismo": L.ORGANISMOS[r["organismo"]],
+            "Estado": r["estado"],
+            "Prioridad del foco": foco["nivel"] if abierto else "",
+            "Pendiente del foco": foco["pendiente"] if abierto else None,
+            "Reportes del foco (7 días)": foco["reportes_7d"] if abierto else None,
+            "Validaciones vecinales": r["vistos"],
+            "Vecinos confirman resolución": c["si"],
+            "Vecinos cuestionan resolución": c["no"],
+            "Resolución cuestionada": "Sí" if L.cuestionada(r) else "No",
+            "Evidencias adicionales": len(r["evidencias"]),
+            "Tiene foto o video": "Sí" if r["media"] else "No",
+        })
+    return pd.DataFrame(filas)
+
+
+def csv_bytes(df):
+    """CSV pensado para Excel en español: separador ';', decimales con coma y tildes correctas."""
+    return df.to_csv(index=False, sep=";", decimal=",").encode("utf-8-sig")
+
+
+def nombre_csv(*partes):
+    """Nombre de archivo con la fecha de hoy, sin espacios ni guiones bajos sobrantes."""
+    base = "_".join(str(p).strip().replace(" ", "_") for p in partes if p)
+    return f"{base}_{datetime.now():%Y-%m-%d}.csv"
+
+
 def tarjeta_municipal(r, nivel):
     with st.container(border=True):
         st.markdown(f"**{r['titulo']}**  ·  {ICONO_NIVEL[nivel]}" if r["estado"] != "Resuelto"
@@ -445,6 +490,18 @@ def vista_municipalidad():
     st.dataframe(pd.DataFrame([{"Prioridad": ICONO_NIVEL[v["nivel"]], "Problema": t, "Ubicación/Sector": s,
                                 "Reportes (7 días)": v["reportes_7d"], "Pendiente": v["pendiente"]}
                                for (t, s), v in filas]), hide_index=True)
+
+    e1, e2 = st.columns(2)
+    df_prio = pd.DataFrame([{"Problema": t, "Ubicación": s, "Reportes (7 días)": v["reportes_7d"],
+                             "Pendiente": v["pendiente"], "Prioridad": v["nivel"]}
+                            for (t, s), v in filas])
+    e1.download_button("⬇️ Exportar prioridad por foco (CSV)", csv_bytes(df_prio),
+                       file_name=nombre_csv("prioridad_focos"), mime="text/csv",
+                       key="dl_prioridad", use_container_width=True)
+    e2.download_button("⬇️ Exportar todos los reportes (CSV)",
+                       csv_bytes(tabla_exportable(sorted(reps, key=lambda r: r["fecha"], reverse=True), prio)),
+                       file_name=nombre_csv("reportes_todos"), mime="text/csv",
+                       key="dl_todos", use_container_width=True)
 
     # 3. Carpetas por organismo y filtro dinámico
     st.subheader("Carpetas por organismo")
@@ -518,13 +575,11 @@ def vista_municipalidad():
             if not items:
                 continue
 
-            df = pd.DataFrame([{"id": r["id"], "titulo": r["titulo"], "tipo": r["tipo"],
-                                "lugar": r["lugar"], "riesgo": r["riesgo"], "ubicacion": r["sector"],
-                                "estado": r["estado"], "prioridad": nivel(r), "fecha": r["fecha"]}
-                               for r in items])
-            st.download_button("Exportar carpeta (CSV)", df.to_csv(index=False).encode("utf-8-sig"),
-                               file_name=f"reportes_{k}_{comuna_sel if k=='MUNI' else ''}.csv", 
-                               mime="text/csv", key=f"dl_{k}")
+            st.download_button(
+                "⬇️ Exportar esta carpeta (CSV)" + (f" · {comuna_sel}" if k == "MUNI" else ""),
+                csv_bytes(tabla_exportable(items, prio)),
+                file_name=nombre_csv("reportes", k, comuna_sel if k == "MUNI" else ""),
+                mime="text/csv", key=f"dl_{k}")
             for r in items:
                 tarjeta_municipal(r, nivel(r))
 
