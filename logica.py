@@ -40,7 +40,7 @@ MIN_REPORTES_SEMANA = 3
 
 # Con MODO_DEMO = True la ventana de 7 días se mide hasta el reporte más reciente
 # y no hasta hoy, para que los datos de ejemplo no "caduquen". Poner False en uso real.
-MODO_DEMO = True
+MODO_DEMO = False
 
 
 def derivar_organismo(tipo, lugar):
