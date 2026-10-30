@@ -236,3 +236,11 @@ def sembrar_demo():
         r["resolucion"] = {"si": si, "no": no}
         _log(r, "Estado actualizado a 'Resuelto'")
         guardar(r)
+
+
+def reiniciar_demo():
+    """Borra TODOS los reportes y las fotos subidas, y vuelve a generar los de ejemplo."""
+    import shutil
+    for carpeta in (CARPETAS, UPLOADS):
+        shutil.rmtree(carpeta, ignore_errors=True)
+    sembrar_demo()

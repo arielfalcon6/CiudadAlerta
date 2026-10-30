@@ -527,6 +527,17 @@ def vista_municipalidad():
             for r in items:
                 tarjeta_municipal(r, nivel(r))
 
+    # 4. Herramientas de demostración
+    st.divider()
+    with st.expander("🧰 Herramientas de demostración"):
+        st.caption("Borra TODOS los reportes (incluidos los de prueba y sus fotos) y vuelve a "
+                   "generar los reportes de ejemplo.")
+        confirmar = st.checkbox("Entiendo que se borrarán todos los reportes", key="confirmar_reinicio")
+        if st.button("🔄 Reiniciar demo", disabled=not confirmar, key="btn_reiniciar_demo"):
+            L.reiniciar_demo()
+            st.session_state.votos = set()
+            recargar_app()
+
 # ---------------------------------------------------------------- DESCRIPCIÓN
 DESCRIPCION = f"""
 ### ¿Qué es CiudadAlerta?
