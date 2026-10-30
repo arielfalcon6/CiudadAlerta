@@ -5,6 +5,7 @@ CiudadAlerta - prototipo de interfaz.
 Instalar:  pip install streamlit folium streamlit-folium geopy pandas
 Ejecutar:  streamlit run app.py
 """
+import unicodedata
 from datetime import datetime
 from pathlib import Path
 
@@ -102,25 +103,49 @@ def extraer_comuna_estricta(direccion_texto):
     return direccion_texto.strip()
 
 
+# Campos de la dirección que NO son la comuna. "county" es la provincia ("Provincia de Santiago"),
+# y contiene la palabra Santiago aunque el punto esté en Las Condes, Providencia, etc.
+CAMPOS_NO_COMUNA = {"road", "pedestrian", "footway", "house_number", "postcode", "country",
+                    "country_code", "state", "region", "state_district", "county"}
+
+
+def _sin_tildes(texto):
+    return "".join(ch for ch in unicodedata.normalize("NFD", texto.lower())
+                   if unicodedata.category(ch) != "Mn")
+
+
+def comuna_desde_direccion(addr):
+    """Busca la comuna en TODOS los campos de la dirección, no solo en uno.
+
+    Nominatim a veces deja la comuna en 'suburb' o 'city_district' y pone 'Santiago' en 'city'
+    (la ciudad) o en 'county' (la provincia). Por eso se prefiere cualquier comuna distinta de
+    Santiago que aparezca, y solo si no hay ninguna se usa Santiago."""
+    valores = [_sin_tildes(str(v)) for k, v in addr.items()
+               if k not in CAMPOS_NO_COMUNA and not k.startswith("ISO3166")]
+    otras = [c for c in COMUNAS_OFICIALES if c != "Santiago"]
+    for c in otras:                                   # 1) coincidencia exacta
+        if _sin_tildes(c) in valores:
+            return c
+    for c in otras:                                   # 2) la comuna aparece dentro de un campo
+        if any(_sin_tildes(c) in v for v in valores):
+            return c
+    # 3) respaldo: lógica anterior (Santiago, o el nombre de una ciudad fuera de la lista)
+    comuna_raw = (addr.get("city") or addr.get("town") or addr.get("municipality") or
+                  addr.get("county") or addr.get("city_district") or "Santiago")
+    return extraer_comuna_estricta(comuna_raw)
+
+
 @st.cache_data(ttl=3600)
 def obtener_direccion_calle_comuna(lat, lon):
     """Convierte coordenadas a Nombre de calle y Comuna (sin barrios)."""
     try:
         geolocator = Nominatim(user_agent="ciudadalerta_app_v3")
-        location = geolocator.reverse((lat, lon), timeout=5)
+        location = geolocator.reverse((lat, lon), timeout=5, language="es")
         if location and location.raw.get("address"):
             addr = location.raw["address"]
             calle = addr.get("road") or addr.get("pedestrian") or addr.get("footway") or "Calle sin nombre"
             numero = addr.get("house_number", "")
-            
-            comuna_raw = (addr.get("city") or 
-                          addr.get("town") or 
-                          addr.get("municipality") or 
-                          addr.get("county") or 
-                          addr.get("city_district") or 
-                          "Santiago")
-            
-            comuna = extraer_comuna_estricta(comuna_raw)
+            comuna = comuna_desde_direccion(addr)
             direccion_completa = f"{calle} {numero}".strip()
             return f"{direccion_completa}, {comuna}"
     except Exception:
