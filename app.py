@@ -41,6 +41,7 @@ COMUNAS_OFICIALES = [
     "Colina", "Lampa", "Tiltil", "San Bernardo", "Buin", "Paine", "Calera de Tango",
     "Melipilla", "Talagante", "Padre Hurtado", "Peñaflor"
 ]
+SIN_COMUNA = "Sin comuna reconocida"  # reportes cuya dirección no coincide con ninguna comuna de la lista
 
 # ---------------------------------------------------------------- COMPONENTES Y AUXILIARES
 def recargar_app():
@@ -515,40 +516,46 @@ def vista_municipalidad():
 
             comuna_sel = "Santiago"
             if k == "MUNI":
-                # Reportes de la Municipalidad por comuna (total y abiertos)
+                # Reportes de la Municipalidad por comuna (total y abiertos).
+                # Si la dirección no coincide con una comuna de la lista, va a "Sin comuna reconocida".
+                def comuna_de(r):
+                    c = extraer_comuna_estricta(r.get("sector", ""))
+                    return c if c in COMUNAS_OFICIALES else SIN_COMUNA
+
                 por_comuna, abiertos_comuna = {}, {}
                 for r in items:
-                    c = extraer_comuna_estricta(r.get("sector", ""))
+                    c = comuna_de(r)
                     por_comuna[c] = por_comuna.get(c, 0) + 1
                     if r["estado"] != "Resuelto":
                         abiertos_comuna[c] = abiertos_comuna.get(c, 0) + 1
 
                 comuna_sel = st.selectbox(
                     "🔍 Busca o selecciona la comuna de la Municipalidad:",
-                    options=COMUNAS_OFICIALES,
+                    options=COMUNAS_OFICIALES + [SIN_COMUNA],
                     index=COMUNAS_OFICIALES.index("Santiago"),
                     key="filtro_comuna_muni",
                     format_func=lambda c: f"{c} ({por_comuna.get(c, 0)})",
                     help="El número entre paréntesis es la cantidad de reportes de esa comuna. "
+                         "Al final de la lista está 'Sin comuna reconocida'. "
                          "Haz clic y escribe el nombre para buscar."
                 )
 
                 with st.expander("📊 Resumen de reportes por comuna"):
                     filas_c = [{"Comuna": c, "Reportes": n, "Abiertos": abiertos_comuna.get(c, 0)}
-                               for c, n in por_comuna.items() if c in COMUNAS_OFICIALES]
+                               for c, n in por_comuna.items()]
                     if filas_c:
                         st.dataframe(pd.DataFrame(sorted(filas_c, key=lambda f: -f["Reportes"])),
                                      hide_index=True)
-                    sin_comuna = sum(n for c, n in por_comuna.items() if c not in COMUNAS_OFICIALES)
-                    if sin_comuna:
-                        st.caption(f"⚠️ {sin_comuna} reporte(s) tienen una dirección sin comuna reconocida "
-                                   "y no aparecen en ninguna comuna del selector.")
-                items = [r for r in items if extraer_comuna_estricta(r.get("sector", "")) == comuna_sel]
-                
+                    else:
+                        st.caption("Todavía no hay reportes asignados a la Municipalidad.")
+                items = [r for r in items if comuna_de(r) == comuna_sel]
+
+                donde = ("la **Municipalidad de " + comuna_sel + "**") if comuna_sel != SIN_COMUNA \
+                    else "la **Municipalidad** (dirección sin comuna reconocida)"
                 if items:
-                    st.info(f"Mostrando reportes asignados a la **Municipalidad de {comuna_sel}** ({len(items)} reportes)")
+                    st.info(f"Mostrando reportes asignados a {donde} ({len(items)} reportes)")
                 else:
-                    st.warning(f"No hay reportes registrados actualmente para la **Municipalidad de {comuna_sel}**.")
+                    st.warning(f"No hay reportes registrados actualmente para {donde}.")
 
             st.caption(f"Carpeta: carpetas/{k}/" + ("" if k == "MUNI" else
                        f" · se envía a {L.ORGANISMOS[k]}; la autoridad registra el avance informado."))
