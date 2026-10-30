@@ -17,7 +17,9 @@ from streamlit_folium import st_folium
 
 import logica as L
 
+# 1. Configuración de página siempre al inicio de Streamlit
 st.set_page_config(page_title="CiudadAlerta (prototipo)", page_icon="🏙️", layout="centered")
+
 L.sembrar_demo()
 st.session_state.setdefault("ver", 0)       # para limpiar el formulario tras enviar
 st.session_state.setdefault("votos", set())  # evita votar dos veces en la sesión
@@ -41,6 +43,22 @@ COMUNAS_OFICIALES = [
 ]
 
 # ---------------------------------------------------------------- COMPONENTES Y AUXILIARES
+def recargar_app():
+    """Recarga la app de manera compatible con cualquier versión de Streamlit."""
+    if hasattr(st, "rerun"):
+        st.rerun()
+    elif hasattr(st, "experimental_rerun"):
+        st.experimental_rerun()
+
+
+def titulo_pregunta(texto):
+    """Aplica formato grande y destacado ÚNICAMENTE a las 5 preguntas del formulario."""
+    st.markdown(
+        f'<div style="font-size: 1.35rem; font-weight: 800; color: #0284C7; margin-top: 1.4rem; margin-bottom: 0.4rem;">{texto}</div>', 
+        unsafe_allow_html=True
+    )
+
+
 def badge(texto, color):
     return (f'<span style="background:{color};color:white;padding:2px 9px;'
             f'border-radius:10px;font-size:12px">{texto}</span>')
@@ -110,31 +128,27 @@ def obtener_direccion_calle_comuna(lat, lon):
 
 # ---------------------------------------------------------------- VISIÓN CIUDADANO
 
-def selector_mapa_interactivo():
-    st.markdown("### 📍 Ubicación del problema")
-    st.caption("Haz clic en el mapa para fijar el punto de la denuncia o usa el botón de GPS para ir a tu ubicación.")
 
-    # 1. Posición seleccionada (por defecto o previa)
+def selector_mapa_interactivo():
+    st.caption("El mapa detectará tu ubicación automáticamente al cargar. Si deseas cambiar el punto, haz clic en el lugar exacto.")
+
     if "lat_sel" not in st.session_state:
         st.session_state.lat_sel = -33.4452
         st.session_state.lon_sel = -70.6620
 
-    # 2. Crear mapa centrado en el punto seleccionado
     m = folium.Map(
         location=[st.session_state.lat_sel, st.session_state.lon_sel],
-        zoom_start=14
+        zoom_start=15
     )
 
-    # Botón de geolocalización GPS
     LocateControl(
-        auto_start=False,
+        auto_start=True,
         flyTo=True,
-        keepCurrentZoomLevel=True,
-        strings={"title": "Obtener mi ubicación actual", "popup": "Estás aquí"},
+        keepCurrentZoomLevel=False,
+        strings={"title": "Mi ubicación actual", "popup": "Te encuentras aquí"},
         locateOptions={"enableHighAccuracy": True}
     ).add_to(m)
 
-    # Marcador rojo en la ubicación actual seleccionada
     folium.Marker(
         [st.session_state.lat_sel, st.session_state.lon_sel],
         popup="Ubicación seleccionada",
@@ -142,8 +156,6 @@ def selector_mapa_interactivo():
         icon=folium.Icon(color="red", icon="info-sign")
     ).add_to(m)
 
-    # 3. Escuchar ÚNICAMENTE "last_clicked"
-    # Al eliminar "zoom" y "center", Python no recarga la app mientras arrastras o haces zoom
     map_data = st_folium(
         m,
         width="100%",
@@ -152,24 +164,20 @@ def selector_mapa_interactivo():
         returned_objects=["last_clicked"]
     )
 
-    # 4. Actualizar coordenadas solo cuando hay un clic deliberado
     if map_data and map_data.get("last_clicked"):
         click_lat = map_data["last_clicked"]["lat"]
         click_lon = map_data["last_clicked"]["lng"]
         
-        # Guardar únicamente si cambió de posición
         if click_lat != st.session_state.lat_sel or click_lon != st.session_state.lon_sel:
             st.session_state.lat_sel = click_lat
             st.session_state.lon_sel = click_lon
-            st.rerun()
+            recargar_app()
 
 
-@st.dialog("✅ Reporte realizado con éxito")
-def popup_confirmacion(r):
+def render_resumen_reporte(r):
     st.success("¡Su reporte ha sido realizado con éxito!")
     st.markdown("---")
     st.markdown("### 📋 Resumen del reporte")
-    
     st.write(f"**ID del reporte:** `{r['id']}`")
     st.write(f"**Título:** {r['titulo']}")
     st.write(f"**Tipo de problema:** {r['tipo']}")
@@ -177,20 +185,27 @@ def popup_confirmacion(r):
     st.write(f"**Nivel de riesgo:** {r['riesgo']}")
     st.write(f"**Ubicación:** {r['sector']}")
     st.write(f"**Organismo asignado:** {L.ORGANISMOS.get(r['organismo'], r['organismo'])}")
-    
     if r.get("descripcion"):
         st.write(f"**Descripción:** {r['descripcion']}")
     else:
         st.write("**Descripción:** _Sin descripción_")
-
     if r.get("media"):
         st.markdown("**Evidencia adjunta:**")
         mostrar_media(r["media"])
-
     st.markdown("---")
     if st.button("Aceptar / Cerrar", type="primary"):
         st.session_state.pop("reporte_exito", None)
-        st.rerun()
+        recargar_app()
+
+
+def popup_confirmacion(r):
+    if hasattr(st, "dialog"):
+        @st.dialog("✅ Reporte realizado con éxito")
+        def _dialog_impl():
+            render_resumen_reporte(r)
+        _dialog_impl()
+    else:
+        render_resumen_reporte(r)
 
 
 def formulario():
@@ -199,30 +214,73 @@ def formulario():
     if "reporte_exito" in st.session_state:
         popup_confirmacion(st.session_state["reporte_exito"])
 
+    # 📍 MAPA INTERACTIVO AL PRINCIPIO
+    titulo_pregunta("📍 Ubicación del problema")
     selector_mapa_interactivo()
 
-    # Preguntas ordenadas secuencialmente (1 a 4)
-    tipo = st.radio("1. ¿Qué tipo de problema es?", L.TIPOS, index=None, key=f"tipo_{v}")
-    lugar = st.radio("2. ¿Dónde está?", L.LUGARES, index=None, key=f"lugar_{v}")
-    riesgo = st.radio("3. ¿Hay peligro para las personas?", L.RIESGOS,
-                      index=None, horizontal=True, key=f"riesgo_{v}")
+    # 1. ¿Qué tipo de problema es?
+    titulo_pregunta("1. ¿Qué tipo de problema es?")
+    tipo = st.radio("Tipo de problema", L.TIPOS, index=None, key=f"tipo_{v}", label_visibility="collapsed")
+
+    # 2. ¿Dónde está?
+    titulo_pregunta("2. ¿Dónde está?")
+    lugar = st.radio("Lugar del problema", L.LUGARES, index=None, key=f"lugar_{v}", label_visibility="collapsed")
+
+    # 3. ¿Hay peligro para las personas?
+    titulo_pregunta("3. ¿Hay peligro para las personas?")
+    riesgo = st.radio("Nivel de riesgo", L.RIESGOS, index=None, horizontal=True, key=f"riesgo_{v}", label_visibility="collapsed")
     
-    st.markdown("**4. Cuéntanos más** (solo el título es obligatorio)")
+    # 4. Cuéntanos más (solo el título es obligatorio)
+    titulo_pregunta("4. Cuéntanos más (solo el título es obligatorio)")
     titulo = st.text_input("Título *", max_chars=60, key=f"titulo_{v}")
     descripcion = st.text_area("Descripción (opcional)", max_chars=300, key=f"desc_{v}")
     
-    # 📸 PUNTO 5: ADJUNTAR EVIDENCIA EN SU LUGAR CORRECTO (AL FINAL)
-    st.markdown("**5. Adjuntar evidencia (opcional)**")
-    usar_camara = st.checkbox("📷 Usar cámara en vivo (desmarca para apagarla)", key=f"chk_cam_{v}")
+    # 5. ADJUNTAR EVIDENCIA (CONTROL TOTAL DE CÁMARA BAJO DEMANDA)
+    titulo_pregunta("5. Adjuntar evidencia (opcional)")
+    
+    key_foto_cam = f"foto_camara_guardada_{v}"
+    key_mostrar_cam = f"mostrar_camara_{v}"
 
-    media_cam = None
-    media_file = None
+    if key_mostrar_cam not in st.session_state:
+        st.session_state[key_mostrar_cam] = False
 
-    if usar_camara:
-        media_cam = st.camera_input("Capturar foto desde la cámara", key=f"media_cam_{v}")
-    else:
-        media_file = st.file_uploader("📁 Subir foto o video desde la galería", key=f"media_file_{v}",
-                                     type=["jpg", "jpeg", "png", "mp4", "mov"])
+    c_galeria, c_camara = st.columns(2)
+
+    with c_galeria:
+        media_file = st.file_uploader(
+            "📁 Subir desde la galería", 
+            type=["jpg", "jpeg", "png", "mp4", "mov"], 
+            key=f"media_file_{v}"
+        )
+
+    with c_camara:
+        st.write("**📷 Foto con la cámara**")
+        
+        # OPORTUNIDAD 1: Si ya tomó la foto, muestra miniatura y apaga la cámara
+        if st.session_state.get(key_foto_cam):
+            st.image(st.session_state[key_foto_cam], caption="Foto capturada", width=180)
+            if st.button("🗑️ Quitar / Volver a tomar", key=f"btn_del_cam_{v}"):
+                st.session_state[key_foto_cam] = None
+                st.session_state[key_mostrar_cam] = False
+                recargar_app()
+
+        # OPORTUNIDAD 2: Solo si presionó encender, renderiza el visor e inicia la cámara
+        elif st.session_state.get(key_mostrar_cam):
+            cam_capture = st.camera_input("Capturar foto", key=f"cam_input_{v}", label_visibility="collapsed")
+            if cam_capture:
+                st.session_state[key_foto_cam] = cam_capture
+                st.session_state[key_mostrar_cam] = False  # Apaga la cámara inmediatamente
+                recargar_app()
+            
+            if st.button("❌ Cancelar / Apagar cámara", key=f"btn_cancel_cam_{v}"):
+                st.session_state[key_mostrar_cam] = False
+                recargar_app()
+
+        # OPORTUNIDAD 3: Estado por defecto al cargar (Cámara totalmente desactivada)
+        else:
+            if st.button("📸 Solicitar y encender cámara", key=f"btn_start_cam_{v}"):
+                st.session_state[key_mostrar_cam] = True
+                recargar_app()
 
     st.markdown("<br>", unsafe_allow_html=True)
     enviar = st.button("Enviar reporte", type="primary", use_container_width=True, key=f"btn_send_{v}")
@@ -232,8 +290,9 @@ def formulario():
             st.error("Por favor responde las 3 primeras preguntas y escribe un título.")
             return
         
-        # Seleccionar la foto captured de la cámara o la subida desde la galería
-        media = media_cam if usar_camara else media_file
+        foto_camara = st.session_state.get(key_foto_cam)
+        media = foto_camara if foto_camara is not None else media_file
+        
         ruta = None
         if media:
             nombre_archivo = getattr(media, "name", f"foto_camara_{v}.png")
@@ -246,9 +305,11 @@ def formulario():
             sector=dir_final, media=ruta,
             lat=st.session_state.lat_sel, lon=st.session_state.lon_sel
         )
+        
+        st.session_state[key_foto_cam] = None
+        st.session_state[key_mostrar_cam] = False
         st.session_state.reporte_exito = r
-        st.session_state.ver += 1
-        st.rerun()
+        st.session_
 
 
 def tarjeta_ciudadano(r):
@@ -268,12 +329,12 @@ def tarjeta_ciudadano(r):
             b1, b2 = st.columns(2)
             ya = (r["id"], "res") in votos
             if b1.button("Sí, está resuelto", key=f"si_{r['id']}", disabled=ya):
-                L.votar_resolucion(r, True); votos.add((r["id"], "res")); st.rerun()
+                L.votar_resolucion(r, True); votos.add((r["id"], "res")); recargar_app()
             if b2.button("No, sigue el problema", key=f"no_{r['id']}", disabled=ya):
-                L.votar_resolucion(r, False); votos.add((r["id"], "res")); st.rerun()
+                L.votar_resolucion(r, False); votos.add((r["id"], "res")); recargar_app()
         elif st.button("👁 Yo también lo veo", key=f"v_{r['id']}",
                        disabled=(r["id"], "v") in votos):
-            L.validar_visto(r); votos.add((r["id"], "v")); st.rerun()
+            L.validar_visto(r); votos.add((r["id"], "v")); recargar_app()
 
         with st.expander("Detalles y evidencia"):
             st.write(r["descripcion"] or "_Sin descripción._")
@@ -290,15 +351,13 @@ def tarjeta_ciudadano(r):
                                     type=["jpg", "jpeg", "png", "mp4", "mov"])
             if st.button("Guardar evidencia", key=f"eg_{k}") and (com.strip() or arch):
                 ruta = L.guardar_archivo(arch.name, arch.getvalue()) if arch else None
-                L.agregar_evidencia(r, com, ruta); st.rerun()
+                L.agregar_evidencia(r, com, ruta); recargar_app()
 
 
 def vista_ciudadano():
-    # Inicializar el estado de navegación si no existe
     if "tab_ciudadano" not in st.session_state:
         st.session_state.tab_ciudadano = "reportar"
 
-    # Crear dos columnas de igual ancho para los botones de acción
     col1, col2 = st.columns(2)
     
     with col1:
@@ -310,7 +369,7 @@ def vista_ciudadano():
             type="primary" if activo_1 else "secondary"
         ):
             st.session_state.tab_ciudadano = "reportar"
-            st.rerun()
+            recargar_app()
 
     with col2:
         activo_2 = st.session_state.tab_ciudadano == "ver"
@@ -321,11 +380,10 @@ def vista_ciudadano():
             type="primary" if activo_2 else "secondary"
         ):
             st.session_state.tab_ciudadano = "ver"
-            st.rerun()
+            recargar_app()
 
     st.divider()
 
-    # Desplegar la vista correspondiente según el botón activo
     if st.session_state.tab_ciudadano == "reportar":
         formulario()
     else:
@@ -355,7 +413,7 @@ def tarjeta_municipal(r, nivel):
                            format_func=L.ORGANISMOS.get, key=f"o_{r['id']}")
         c3.write("")
         if c3.button("Aplicar", key=f"a_{r['id']}"):
-            L.cambiar_estado(r, estado, org); st.rerun()
+            L.cambiar_estado(r, estado, org); recargar_app()
         with st.expander("Descripción y evidencia"):
             st.write(r["descripcion"] or "_Sin descripción._")
             mostrar_media(r["media"])
@@ -420,7 +478,6 @@ def vista_municipalidad():
             abiertos_filtrados = [r for r in items if r["estado"] != "Resuelto"]
             
             with st.expander(f"🗺️ Mapa de reportes abiertos ({len(abiertos_filtrados)})", expanded=True):
-                # Leyenda de colores explicativa
                 st.markdown(
                     "**Leyenda de estados:** "
                     "🟠 **Pendiente** &nbsp;&nbsp;|&nbsp;&nbsp; "

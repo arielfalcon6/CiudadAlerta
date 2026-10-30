@@ -38,11 +38,6 @@ UMBRAL_MEDIO = 0.25
 UMBRAL_ALTO = 0.60
 MIN_REPORTES_SEMANA = 3
 
-# MODO_DEMO: los reportes de ejemplo tienen fechas fijas, así que con el paso de los días
-# salen de la ventana de 7 días y todo queda en "Bajo". Con MODO_DEMO = True la ventana se
-# mide hasta el reporte más reciente en vez de hasta hoy. Poner False para uso real.
-MODO_DEMO = True
-
 
 def derivar_organismo(tipo, lugar):
     """Reglas de derivación según las respuestas del ciudadano."""
@@ -167,8 +162,6 @@ def nivel_prioridad(pendiente, total):
 
 def prioridades(reportes, ahora=None):
     """Prioridad por 'foco' = (tipo de problema, sector), solo reportes sin resolver."""
-    if ahora is None and MODO_DEMO and reportes:
-        ahora = max(datetime.fromisoformat(r["fecha"]) for r in reportes)
     focos = {}
     for r in reportes:
         if r["estado"] != "Resuelto":
