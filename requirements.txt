@@ -1,5 +1,6 @@
 streamlit
 folium
 streamlit-folium
+streamlit-geolocation
 geopy
 pandas

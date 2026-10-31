@@ -16,6 +16,11 @@ import pandas as pd
 import streamlit as st
 from streamlit_folium import st_folium
 
+try:  # botón "Mi ubicación": si el paquete no está instalado, la app funciona igual sin ese botón
+    from streamlit_geolocation import streamlit_geolocation
+except ImportError:
+    streamlit_geolocation = None
+
 import logica as L
 
 # 1. Configuración de página siempre al inicio de Streamlit
@@ -164,32 +169,85 @@ def direccion_actual():
 # ---------------------------------------------------------------- VISIÓN CIUDADANO
 
 
+def buscar_direccion(texto):
+    """Convierte una dirección escrita en coordenadas. Devuelve None si no la encuentra o el servicio falla."""
+    try:
+        loc = Nominatim(user_agent="ciudadalerta_app_v3").geocode(
+            texto, country_codes="cl", language="es", timeout=5)
+        if loc:
+            return loc.latitude, loc.longitude
+    except Exception:
+        pass
+    return None
+
+
+def fijar_punto(lat, lon):
+    """Deja confirmado el punto del reporte (por búsqueda, ubicación o clic en el mapa)."""
+    st.session_state.lat_sel = lat
+    st.session_state.lon_sel = lon
+    st.session_state.punto_confirmado = True
+
+
 def selector_mapa_interactivo():
-    st.caption("El mapa detectará tu ubicación automáticamente al cargar. Si deseas cambiar el punto, haz clic en el lugar exacto.")
+    st.session_state.setdefault("lat_sel", -33.4452)
+    st.session_state.setdefault("lon_sel", -70.6620)
+    st.session_state.setdefault("punto_confirmado", False)
 
-    if "lat_sel" not in st.session_state:
-        st.session_state.lat_sel = -33.4452
-        st.session_state.lon_sel = -70.6620
+    st.markdown(
+        "**¿Dónde está el problema?**\n\n"
+        "1. Escribe la dirección y pulsa *Buscar*, o usa tu ubicación.\n"
+        "2. Si el pin no quedó justo en el lugar, toca el mapa donde está el problema.\n"
+        "3. Revisa que la dirección de abajo sea la correcta."
+    )
 
+    # Paso 1a: buscar una dirección escrita
+    with st.form("form_buscar_direccion"):
+        texto = st.text_input("Buscar dirección", key="texto_buscar_dir", label_visibility="collapsed",
+                              placeholder="Ej.: Av. Apoquindo 4800, Las Condes")
+        buscar = st.form_submit_button("🔎 Buscar dirección")
+    if buscar and texto.strip():
+        coords = buscar_direccion(texto.strip())
+        if coords:
+            fijar_punto(*coords)
+            recargar_app()
+        else:
+            st.warning("No encontré esa dirección. Prueba con calle, número y comuna, o toca el mapa.")
+
+    # Paso 1b: usar la ubicación del dispositivo (sirve sobre todo en el celular)
+    if streamlit_geolocation is not None:
+        g1, g2 = st.columns([1, 4])
+        with g1:
+            geo = streamlit_geolocation()
+        g2.caption("👈 Pulsa para usar tu ubicación actual (el navegador te pedirá permiso).")
+        if geo and geo.get("latitude") is not None:
+            punto = (geo["latitude"], geo["longitude"])
+            if punto != st.session_state.get("ultima_geo"):  # ignora valores viejos del componente
+                st.session_state.ultima_geo = punto
+                fijar_punto(*punto)
+                recargar_app()
+
+    # Paso 2: el mapa
+    confirmado = st.session_state.punto_confirmado
     m = folium.Map(
         location=[st.session_state.lat_sel, st.session_state.lon_sel],
-        zoom_start=15
+        zoom_start=16 if confirmado else 12
     )
 
     LocateControl(
-        auto_start=True,
+        auto_start=False,  # que el mapa no se mueva solo y pelee con el pin
         flyTo=True,
         keepCurrentZoomLevel=False,
         strings={"title": "Mi ubicación actual", "popup": "Te encuentras aquí"},
         locateOptions={"enableHighAccuracy": True}
     ).add_to(m)
 
-    folium.Marker(
-        [st.session_state.lat_sel, st.session_state.lon_sel],
-        popup="Ubicación seleccionada",
-        tooltip="Punto del reporte",
-        icon=folium.Icon(color="red", icon="info-sign")
-    ).add_to(m)
+    if confirmado:  # el pin solo aparece cuando el punto ya está elegido
+        folium.Marker(
+            [st.session_state.lat_sel, st.session_state.lon_sel],
+            popup="Ubicación seleccionada",
+            tooltip="Punto del reporte",
+            icon=folium.Icon(color="red", icon="info-sign")
+        ).add_to(m)
 
     map_data = st_folium(
         m,
@@ -200,15 +258,20 @@ def selector_mapa_interactivo():
     )
 
     if map_data and map_data.get("last_clicked"):
-        click_lat = map_data["last_clicked"]["lat"]
-        click_lon = map_data["last_clicked"]["lng"]
-        
-        if click_lat != st.session_state.lat_sel or click_lon != st.session_state.lon_sel:
-            st.session_state.lat_sel = click_lat
-            st.session_state.lon_sel = click_lon
+        clic = (map_data["last_clicked"]["lat"], map_data["last_clicked"]["lng"])
+        # El mapa recuerda el último clic: solo se actúa si es un clic nuevo, para que no
+        # pise lo elegido con la búsqueda o la ubicación.
+        if clic != st.session_state.get("ultimo_clic"):
+            st.session_state.ultimo_clic = clic
+            fijar_punto(*clic)
             recargar_app()
 
-    st.caption(f"📍 Dirección del reporte: **{direccion_actual()}**")
+    # Paso 3: confirmar la dirección
+    if st.session_state.punto_confirmado:
+        st.success(f"✅ Punto fijado: **{direccion_actual()}**")
+    else:
+        st.warning("⚠️ Todavía no marcaste el lugar del problema. "
+                   "Busca una dirección, usa tu ubicación o toca el mapa.")
 
 
 def render_resumen_reporte(r):
@@ -320,7 +383,11 @@ def formulario():
                 recargar_app()
 
     st.markdown("<br>", unsafe_allow_html=True)
-    enviar = st.button("Enviar reporte", type="primary", use_container_width=True, key=f"btn_send_{v}")
+    sin_punto = not st.session_state.get("punto_confirmado", False)
+    enviar = st.button("Enviar reporte", type="primary", use_container_width=True,
+                       key=f"btn_send_{v}", disabled=sin_punto)
+    if sin_punto:
+        st.caption("Para enviar, primero marca el lugar del problema en el mapa.")
 
     if enviar:
         if not (tipo and lugar and riesgo and titulo.strip()):
@@ -347,6 +414,7 @@ def formulario():
         st.session_state[key_mostrar_cam] = False
         st.session_state.reporte_exito = r
         st.session_state.ver += 1
+        st.session_state.punto_confirmado = False
         recargar_app()
 
 
