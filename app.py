@@ -495,6 +495,16 @@ def formulario():
         recargar_app()
 
 
+def linea_ubicacion(r):
+    """Texto de ubicación del reporte, con enlace para verlo en el mapa si hay coordenadas."""
+    sector = r.get("sector", "")
+    texto = "Ubicación marcada en el mapa" if sector in ("", "Ubicación Mapa") else sector
+    if "lat" in r and "lon" in r:
+        enlace = f"https://www.google.com/maps?q={r['lat']:.6f},{r['lon']:.6f}"
+        return f"📍 **{texto}** · [Ver en el mapa]({enlace})"
+    return f"📍 **{texto}**"
+
+
 def tarjeta_ciudadano(r):
     votos = st.session_state.votos
     with st.container(border=True):
@@ -502,6 +512,7 @@ def tarjeta_ciudadano(r):
         st.markdown(badge(r["estado"], COLOR_ESTADO[r["estado"]]) + " "
                     + badge(L.ORGANISMOS[r["organismo"]], "#5D6D7E"), unsafe_allow_html=True)
         stepper(r["estado"])
+        st.markdown(linea_ubicacion(r))
         st.caption(f"{r['tipo']} · {r['lugar']} · {fecha_corta(r['fecha'])} · "
                    f"{r['vistos']} vecinos lo ven")
 
