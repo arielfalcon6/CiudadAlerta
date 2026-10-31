@@ -26,6 +26,16 @@ import logica as L
 # 1. Configuración de página siempre al inicio de Streamlit
 st.set_page_config(page_title="CiudadAlerta (prototipo)", page_icon="🏙️", layout="centered")
 
+# Oculta el mensaje flotante 'Press Enter to apply' en todos los campos de texto
+st.markdown("""
+    <style>
+    [data-testid="InputInstructions"],
+    .stInstructions {
+        display: none !important;
+    }
+    </style>
+""", unsafe_allow_html=True)
+
 L.sembrar_demo()
 st.session_state.setdefault("ver", 0)       # para limpiar el formulario tras enviar
 st.session_state.setdefault("votos", set())  # evita votar dos veces en la sesión
@@ -192,10 +202,11 @@ def selector_mapa_interactivo():
     st.session_state.setdefault("lat_sel", -33.4452)
     st.session_state.setdefault("lon_sel", -70.6620)
     st.session_state.setdefault("punto_confirmado", False)
+    st.session_state.setdefault("posicion_gps", None)  # Guarda la ubicación GPS para no perderla
 
     st.markdown(
         "**¿Dónde está el problema?**\n\n"
-        "1. Escribe la dirección y pulsa *Buscar*, o usa tu ubicación.\n"
+        "1. Escribe la dirección y pulsa *Buscar*, o activa tu ubicación por GPS.\n"
         "2. Si el pin no quedó justo en el lugar, toca el mapa donde está el problema.\n"
         "3. Revisa que la dirección de abajo sea la correcta."
     )
@@ -213,16 +224,19 @@ def selector_mapa_interactivo():
         else:
             st.warning("No encontré esa dirección. Prueba con calle, número y comuna, o toca el mapa.")
 
-    # Paso 1b: usar la ubicación del dispositivo (sirve sobre todo en el celular)
+    # Paso 1b: usar la ubicación del dispositivo
     if streamlit_geolocation is not None:
+        st.info("👇 **Opción alternativa de GPS:**")
         g1, g2 = st.columns([1, 4])
         with g1:
             geo = streamlit_geolocation()
-        g2.caption("👈 Pulsa para usar tu ubicación actual (el navegador te pedirá permiso).")
+        with g2:
+            st.caption("👈 **Presiona el icono de la izquierda** para obtener tu GPS rápido.")
         if geo and geo.get("latitude") is not None:
             punto = (geo["latitude"], geo["longitude"])
-            if punto != st.session_state.get("ultima_geo"):  # ignora valores viejos del componente
+            if punto != st.session_state.get("ultima_geo"):
                 st.session_state.ultima_geo = punto
+                st.session_state.posicion_gps = punto  # Se fija la posición GPS permanente
                 fijar_punto(*punto)
                 recargar_app()
 
@@ -233,15 +247,81 @@ def selector_mapa_interactivo():
         zoom_start=16 if confirmado else 12
     )
 
+    # Estilo del botón de geolocalización dentro del mapa
+    estilo_boton_mapa = """
+    <style>
+    .leaflet-control-locate {
+        border: none !important;
+        margin-top: 10px !important;
+        margin-left: 10px !important;
+    }
+    .leaflet-control-locate a {
+        background-color: #0284C7 !important;
+        color: white !important;
+        width: auto !important;
+        padding: 6px 14px !important;
+        height: 38px !important;
+        border-radius: 8px !important;
+        box-shadow: 0 4px 12px rgba(0,0,0,0.3) !important;
+        display: flex !important;
+        align-items: center !important;
+        gap: 8px !important;
+        text-decoration: none !important;
+        font-weight: bold !important;
+        font-size: 13px !important;
+        font-family: system-ui, -apple-system, sans-serif !important;
+    }
+    .leaflet-control-locate a::after {
+        content: "📍 USAR MI UBICACIÓN ACTUAL";
+        white-space: nowrap;
+        color: white !important;
+    }
+    .leaflet-control-locate a:hover {
+        background-color: #0369A1 !important;
+    }
+    .leaflet-control-locate span {
+        filter: brightness(0) invert(1);
+    }
+    </style>
+    """
+    m.get_root().header.add_child(folium.Element(estilo_boton_mapa))
+
     LocateControl(
-        auto_start=False,  # que el mapa no se mueva solo y pelee con el pin
+        auto_start=False,
         flyTo=True,
         keepCurrentZoomLevel=False,
-        strings={"title": "Mi ubicación actual", "popup": "Te encuentras aquí"},
+        strings={"title": "Obtener mi ubicación GPS actual", "popup": "Te encuentras aquí"},
         locateOptions={"enableHighAccuracy": True}
     ).add_to(m)
 
-    if confirmado:  # el pin solo aparece cuando el punto ya está elegido
+    # 🔵 DIBUJA EL PUNTO AZUL GPS PERMANENTE (Si el usuario ya se geolocalizó)
+    if st.session_state.posicion_gps:
+        gps_lat, gps_lon = st.session_state.posicion_gps
+        # Halo de precisión azul
+        folium.Circle(
+            [gps_lat, gps_lon],
+            radius=40,
+            color="#0284C7",
+            weight=1,
+            fill=True,
+            fill_color="#0284C7",
+            fill_opacity=0.2
+        ).add_to(m)
+        # Punto azul de ubicación GPS del usuario
+        folium.CircleMarker(
+            [gps_lat, gps_lon],
+            radius=7,
+            color="white",
+            weight=2,
+            fill=True,
+            fill_color="#0284C7",
+            fill_opacity=1.0,
+            popup="Tu ubicación GPS",
+            tooltip="📍 Tu posición GPS"
+        ).add_to(m)
+
+    # 🔴 DIBUJA EL MARCADOR ROJO DEL PROBLEMA
+    if confirmado:
         folium.Marker(
             [st.session_state.lat_sel, st.session_state.lon_sel],
             popup="Ubicación seleccionada",
@@ -259,10 +339,11 @@ def selector_mapa_interactivo():
 
     if map_data and map_data.get("last_clicked"):
         clic = (map_data["last_clicked"]["lat"], map_data["last_clicked"]["lng"])
-        # El mapa recuerda el último clic: solo se actúa si es un clic nuevo, para que no
-        # pise lo elegido con la búsqueda o la ubicación.
         if clic != st.session_state.get("ultimo_clic"):
             st.session_state.ultimo_clic = clic
+            # Si aún no tenía guardado un punto GPS, se fija el clic como referencia GPS previa
+            if not st.session_state.posicion_gps and not confirmado:
+                st.session_state.posicion_gps = (st.session_state.lat_sel, st.session_state.lon_sel)
             fijar_punto(*clic)
             recargar_app()
 
@@ -272,7 +353,6 @@ def selector_mapa_interactivo():
     else:
         st.warning("⚠️ Todavía no marcaste el lugar del problema. "
                    "Busca una dirección, usa tu ubicación o toca el mapa.")
-
 
 def render_resumen_reporte(r):
     st.success("¡Su reporte ha sido realizado con éxito!")
