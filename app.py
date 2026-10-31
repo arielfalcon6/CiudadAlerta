@@ -341,9 +341,6 @@ def selector_mapa_interactivo():
         clic = (map_data["last_clicked"]["lat"], map_data["last_clicked"]["lng"])
         if clic != st.session_state.get("ultimo_clic"):
             st.session_state.ultimo_clic = clic
-            # Si aún no tenía guardado un punto GPS, se fija el clic como referencia GPS previa
-            if not st.session_state.posicion_gps and not confirmado:
-                st.session_state.posicion_gps = (st.session_state.lat_sel, st.session_state.lon_sel)
             fijar_punto(*clic)
             recargar_app()
 
