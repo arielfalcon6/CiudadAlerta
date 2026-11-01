@@ -19,7 +19,8 @@ UPLOADS = BASE / "uploads"
 ESTADOS = ["Pendiente", "En revisión", "En reparación", "Resuelto"]
 
 TIPOS = ["Pavimento o vereda", "Alumbrado público", "Plaza o área verde",
-         "Agua o alcantarillado", "Basura o aseo", "Edificio o estructura"]
+         "Agua o alcantarillado", "Basura o aseo", "Semáforos o señalización",
+         "Edificio o estructura", "Otro"]
 LUGARES = ["Calle o pasaje de barrio", "Avenida principal", "Ruta o camino interurbano",
            "Plaza o parque", "Edificio común", "Edificio o monumento histórico"]
 RIESGOS = ["Sin peligro", "Posible peligro", "Peligro inmediato"]
@@ -165,18 +166,25 @@ def nivel_prioridad(pendiente, total):
 
 
 def prioridades(reportes, ahora=None):
-    """Prioridad por 'foco' = (tipo de problema, sector), solo reportes sin resolver."""
+    """Prioridad por 'foco' = (tipo de problema, sector), solo reportes sin resolver.
+
+    Un foco con al menos un reporte abierto de 'Peligro inmediato' sube a Alto, aunque tenga
+    pocos reportes o no crezca: el riesgo para las personas va primero."""
     if ahora is None and MODO_DEMO and reportes:
         ahora = max(datetime.fromisoformat(r["fecha"]) for r in reportes)
-    focos = {}
+    focos, con_peligro = {}, set()
     for r in reportes:
         if r["estado"] != "Resuelto":
-            focos.setdefault((r["tipo"], r["sector"]), []).append(datetime.fromisoformat(r["fecha"]))
+            clave = (r["tipo"], r["sector"])
+            focos.setdefault(clave, []).append(datetime.fromisoformat(r["fecha"]))
+            if r.get("riesgo") == "Peligro inmediato":
+                con_peligro.add(clave)
     out = {}
     for foco, fechas in focos.items():
         pend, total = pendiente_semanal(fechas, ahora)
+        nivel = "Alto" if foco in con_peligro else nivel_prioridad(pend, total)
         out[foco] = {"pendiente": round(pend, 2), "reportes_7d": total,
-                     "nivel": nivel_prioridad(pend, total)}
+                     "nivel": nivel, "peligro_inmediato": foco in con_peligro}
     return out
 
 

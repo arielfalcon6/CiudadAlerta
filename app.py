@@ -401,11 +401,18 @@ def formulario():
 
     # 2. ¿Dónde está?
     titulo_pregunta("2. ¿Dónde está?")
+    st.caption("**Avenida principal:** varias pistas y mucho tráfico. "
+               "**Ruta o camino interurbano:** carretera o camino fuera de la ciudad. "
+               "**Edificio o monumento histórico:** construcción patrimonial; se envía al CMN y, si no es "
+               "un Monumento Nacional declarado, la municipalidad puede reasignarlo.")
     lugar = st.radio("Lugar del problema", L.LUGARES, index=None, key=f"lugar_{v}", label_visibility="collapsed")
 
     # 3. ¿Hay peligro para las personas?
     titulo_pregunta("3. ¿Hay peligro para las personas?")
     riesgo = st.radio("Nivel de riesgo", L.RIESGOS, index=None, horizontal=True, key=f"riesgo_{v}", label_visibility="collapsed")
+    if riesgo == "Peligro inmediato":
+        st.error("🚨 Si hay riesgo inmediato para las personas, llama primero al **133** (Carabineros), "
+                 "**132** (Bomberos) o **131** (SAMU). Esta aplicación no es un canal de emergencia.")
     
     # 4. Cuéntanos más (solo el título es obligatorio)
     titulo_pregunta("4. Cuéntanos más (solo el título es obligatorio)")
@@ -678,15 +685,18 @@ def vista_municipalidad():
     st.subheader("Prioridad por foco")
     st.caption(f"Foco = tipo de problema + ubicación. Prioridad según la pendiente de reportes por día "
                f"en 7 días: Bajo < {L.UMBRAL_MEDIO} · Medio {L.UMBRAL_MEDIO}–{L.UMBRAL_ALTO} · "
-               f"Alto ≥ {L.UMBRAL_ALTO} (mínimo {L.MIN_REPORTES_SEMANA} reportes).")
+               f"Alto ≥ {L.UMBRAL_ALTO} (mínimo {L.MIN_REPORTES_SEMANA} reportes). "
+               f"Un foco con algún reporte abierto de peligro inmediato sube siempre a Alto (🚨).")
     filas = sorted(prio.items(), key=lambda kv: (ORDEN_NIVEL[kv[1]["nivel"]], -kv[1]["pendiente"]))
     st.dataframe(pd.DataFrame([{"Prioridad": ICONO_NIVEL[v["nivel"]], "Problema": t, "Ubicación/Sector": s,
-                                "Reportes (7 días)": v["reportes_7d"], "Pendiente": v["pendiente"]}
+                                "Reportes (7 días)": v["reportes_7d"], "Pendiente": v["pendiente"],
+                                "Peligro inmediato": "🚨 Sí" if v["peligro_inmediato"] else ""}
                                for (t, s), v in filas]), hide_index=True)
 
     e1, e2 = st.columns(2)
     df_prio = pd.DataFrame([{"Problema": t, "Ubicación": s, "Reportes (7 días)": v["reportes_7d"],
-                             "Pendiente": v["pendiente"], "Prioridad": v["nivel"]}
+                             "Pendiente": v["pendiente"], "Prioridad": v["nivel"],
+                             "Peligro inmediato": "Sí" if v["peligro_inmediato"] else "No"}
                             for (t, s), v in filas])
     e1.download_button("⬇️ Exportar prioridad por foco (CSV)", csv_bytes(df_prio),
                        file_name=nombre_csv("prioridad_focos"), mime="text/csv",
