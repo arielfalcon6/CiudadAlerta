@@ -356,6 +356,7 @@ def render_resumen_reporte(r):
     st.markdown("---")
     st.markdown("### 📋 Resumen del reporte")
     st.write(f"**ID del reporte:** `{r['id']}`")
+    st.caption("Guarda este ID: con él puedes buscar tu reporte en «Ver y validar» y seguir su avance.")
     st.write(f"**Título:** {r['titulo']}")
     st.write(f"**Tipo de problema:** {L.tipo_texto(r)}")
     st.write(f"**Lugar:** {r['lugar']}")
@@ -370,7 +371,13 @@ def render_resumen_reporte(r):
         st.markdown("**Evidencia adjunta:**")
         mostrar_media(r["media"])
     st.markdown("---")
-    if st.button("Aceptar / Cerrar", type="primary"):
+    b1, b2 = st.columns(2)
+    if b1.button("🔎 Ver mi reporte", key="btn_ver_mi_reporte", use_container_width=True):
+        st.session_state.pop("reporte_exito", None)
+        st.session_state.tab_ciudadano = "ver"
+        st.session_state.buscar_reporte = r["id"]
+        recargar_app()
+    if b2.button("Aceptar / Cerrar", type="primary", use_container_width=True):
         st.session_state.pop("reporte_exito", None)
         recargar_app()
 
@@ -410,6 +417,8 @@ def formulario():
                "**Edificio o monumento histórico:** construcción patrimonial; se envía al CMN y, si no es "
                "un Monumento Nacional declarado, la municipalidad puede reasignarlo.")
     lugar = st.radio("Lugar del problema", L.LUGARES, index=None, key=f"lugar_{v}", label_visibility="collapsed")
+    if tipo and lugar:
+        st.info(f"📨 Tu reporte se enviará a: **{L.ORGANISMOS[L.derivar_organismo(tipo, lugar)]}**")
 
     # 3. ¿Hay peligro para las personas?
     titulo_pregunta("3. ¿Hay peligro para las personas?")
@@ -472,10 +481,27 @@ def formulario():
 
     st.markdown("<br>", unsafe_allow_html=True)
     sin_punto = not st.session_state.get("punto_confirmado", False)
-    enviar = st.button("Enviar reporte", type="primary", use_container_width=True,
-                       key=f"btn_send_{v}", disabled=sin_punto)
+    faltan = []
     if sin_punto:
-        st.caption("Para enviar, primero marca el lugar del problema en el mapa.")
+        faltan.append("el lugar en el mapa")
+    if not tipo:
+        faltan.append("el tipo de problema")
+    elif tipo == "Otro" and not tipo_otro.strip():
+        faltan.append("qué tipo de problema es")
+    if not lugar:
+        faltan.append("dónde está")
+    if not riesgo:
+        faltan.append("si hay peligro")
+    if not titulo.strip():
+        faltan.append("el título")
+    # Solo se bloquea por lo que se elige con un clic. Los textos se validan al enviar, porque un
+    # campo de texto se guarda recién al salir de él y el primer toque al botón se perdería.
+    enviar = st.button("Enviar reporte", type="primary", use_container_width=True,
+                       key=f"btn_send_{v}", disabled=sin_punto or not (tipo and lugar and riesgo))
+    if faltan:
+        st.caption("Te falta: " + ", ".join(faltan) + ".")
+    else:
+        st.caption("✅ Todo listo para enviar.")
 
     if enviar:
         if not (tipo and lugar and riesgo and titulo.strip()):
@@ -529,7 +555,7 @@ def tarjeta_ciudadano(r):
         stepper(r["estado"])
         st.markdown(linea_ubicacion(r))
         st.caption(f"{L.tipo_texto(r)} · {r['lugar']} · {fecha_corta(r['fecha'])} · "
-                   f"{r['vistos']} vecinos lo ven")
+                   f"{r['vistos']} vecinos lo ven · ID: `{r['id']}`")
 
         if r["estado"] == "Resuelto":
             c = r["resolucion"]
@@ -561,6 +587,62 @@ def tarjeta_ciudadano(r):
             if st.button("Guardar evidencia", key=f"eg_{k}") and (com.strip() or arch):
                 ruta = L.guardar_archivo(arch.name, arch.getvalue()) if arch else None
                 L.agregar_evidencia(r, com, ruta); recargar_app()
+
+
+def comuna_de_reporte(r):
+    """Comuna del reporte, o 'Sin comuna reconocida' si la dirección no calza con la lista."""
+    c = extraer_comuna_estricta(r.get("sector", ""))
+    return c if c in COMUNAS_OFICIALES else SIN_COMUNA
+
+
+def lista_reportes(reps):
+    """Pantalla 'Ver y validar': buscador, filtros y lista paginada."""
+    st.text_input("🔎 Buscar mi reporte (escribe y presiona Enter)", key="buscar_reporte",
+                  placeholder="ID del reporte, dirección o título")
+    f1, f2, f3 = st.columns(3)
+    estado = f1.selectbox("Estado", ["Todos"] + L.ESTADOS, key="filtro_estado")
+    tipo = f2.selectbox("Tipo de problema", ["Todos"] + L.TIPOS, key="filtro_tipo")
+    conteo = {}
+    for r in reps:
+        c = comuna_de_reporte(r)
+        conteo[c] = conteo.get(c, 0) + 1
+    comuna = f3.selectbox("Comuna", ["Todas"] + sorted(conteo, key=lambda c: (c == SIN_COMUNA, c)),
+                          key="filtro_comuna_ciudadano",
+                          format_func=lambda c: c if c == "Todas" else f"{c} ({conteo[c]})")
+
+    q = st.session_state.get("buscar_reporte", "").strip().lower()
+
+    def coincide(r):
+        if estado != "Todos" and r["estado"] != estado:
+            return False
+        if tipo != "Todos" and r["tipo"] != tipo:
+            return False
+        if comuna != "Todas" and comuna_de_reporte(r) != comuna:
+            return False
+        if q:
+            texto = " ".join([r["id"], r["titulo"], r.get("sector", ""), L.tipo_texto(r)]).lower()
+            return q in texto
+        return True
+
+    filtrados = [r for r in reps if coincide(r)]
+
+    firma = (q, estado, tipo, comuna)  # si cambia algún filtro, se vuelve a mostrar desde el principio
+    if st.session_state.get("firma_lista") != firma:
+        st.session_state.firma_lista = firma
+        st.session_state.limite_lista = 10
+    limite = st.session_state.get("limite_lista", 10)
+
+    if not filtrados:
+        st.info("No encontramos reportes con esos filtros. Revisa el ID o quita algún filtro.")
+        return
+    st.caption(f"Mostrando {min(len(filtrados), limite)} de {len(filtrados)} reportes "
+               f"({len(reps)} en total).")
+    for r in filtrados[:limite]:
+        tarjeta_ciudadano(r)
+    if len(filtrados) > limite and st.button("Mostrar más reportes", key="btn_mas_reportes",
+                                             use_container_width=True):
+        st.session_state.limite_lista = limite + 10
+        recargar_app()
 
 
 def vista_ciudadano():
@@ -599,8 +681,8 @@ def vista_ciudadano():
         reps = sorted(L.cargar_todos(), key=lambda r: r["fecha"], reverse=True)
         if not reps:
             st.info("No hay reportes todavía.")
-        for r in reps:
-            tarjeta_ciudadano(r)
+        else:
+            lista_reportes(reps)
 
 # ---------------------------------------------------------------- VISIÓN AUTORIDAD
 def tabla_exportable(reportes, prio):
