@@ -44,6 +44,12 @@ MIN_REPORTES_SEMANA = 3
 MODO_DEMO = False
 
 
+def tipo_texto(r):
+    """Tipo de problema para mostrar: si es 'Otro', agrega lo que escribió el vecino."""
+    detalle = r.get("tipo_detalle", "")
+    return f"Otro: {detalle}" if r["tipo"] == "Otro" and detalle else r["tipo"]
+
+
 def derivar_organismo(tipo, lugar):
     """Reglas de derivación según las respuestas del ciudadano."""
     if lugar == "Edificio o monumento histórico":
@@ -85,7 +91,7 @@ def _log(r, texto, cuando=None):
 
 
 def crear_reporte(titulo, descripcion, tipo, lugar, riesgo, sector="Ubicación en mapa",
-                  media=None, fecha=None, estado="Pendiente", lat=None, lon=None):
+                  media=None, fecha=None, estado="Pendiente", lat=None, lon=None, tipo_detalle=""):
     fecha = fecha or datetime.now()
     
     # Si no se pasan coordenadas exactas, usa la base del sector o Santiago
@@ -96,7 +102,7 @@ def crear_reporte(titulo, descripcion, tipo, lugar, riesgo, sector="Ubicación e
 
     r = {
         "id": uuid.uuid4().hex[:8], "titulo": titulo.strip(), "descripcion": descripcion.strip(),
-        "media": media, "tipo": tipo, "lugar": lugar, "riesgo": riesgo, "sector": sector,
+        "media": media, "tipo": tipo, "tipo_detalle": tipo_detalle.strip(), "lugar": lugar, "riesgo": riesgo, "sector": sector,
         "lat": lat, "lon": lon,
         "organismo": derivar_organismo(tipo, lugar), "estado": estado,
         "fecha": fecha.isoformat(timespec="seconds"),

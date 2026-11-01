@@ -357,7 +357,7 @@ def render_resumen_reporte(r):
     st.markdown("### 📋 Resumen del reporte")
     st.write(f"**ID del reporte:** `{r['id']}`")
     st.write(f"**Título:** {r['titulo']}")
-    st.write(f"**Tipo de problema:** {r['tipo']}")
+    st.write(f"**Tipo de problema:** {L.tipo_texto(r)}")
     st.write(f"**Lugar:** {r['lugar']}")
     st.write(f"**Nivel de riesgo:** {r['riesgo']}")
     st.write(f"**Ubicación:** {r['sector']}")
@@ -398,6 +398,10 @@ def formulario():
     # 1. ¿Qué tipo de problema es?
     titulo_pregunta("1. ¿Qué tipo de problema es?")
     tipo = st.radio("Tipo de problema", L.TIPOS, index=None, key=f"tipo_{v}", label_visibility="collapsed")
+    tipo_otro = ""
+    if tipo == "Otro":
+        tipo_otro = st.text_input("¿Qué tipo de problema es? *", max_chars=40, key=f"tipo_otro_{v}",
+                                  placeholder="Ej.: árbol caído, poste inclinado, mobiliario dañado")
 
     # 2. ¿Dónde está?
     titulo_pregunta("2. ¿Dónde está?")
@@ -477,6 +481,9 @@ def formulario():
         if not (tipo and lugar and riesgo and titulo.strip()):
             st.error("Por favor responde las 3 primeras preguntas y escribe un título.")
             return
+        if tipo == "Otro" and not tipo_otro.strip():
+            st.error("Escribe qué tipo de problema es (elegiste «Otro»).")
+            return
         
         foto_camara = st.session_state.get(key_foto_cam)
         media = foto_camara if foto_camara is not None else media_file
@@ -491,7 +498,8 @@ def formulario():
         r = L.crear_reporte(
             titulo, descripcion, tipo, lugar, riesgo, 
             sector=dir_final, media=ruta,
-            lat=st.session_state.lat_sel, lon=st.session_state.lon_sel
+            lat=st.session_state.lat_sel, lon=st.session_state.lon_sel,
+            tipo_detalle=tipo_otro
         )
         
         st.session_state[key_foto_cam] = None
@@ -520,7 +528,7 @@ def tarjeta_ciudadano(r):
                     + badge(L.ORGANISMOS[r["organismo"]], "#5D6D7E"), unsafe_allow_html=True)
         stepper(r["estado"])
         st.markdown(linea_ubicacion(r))
-        st.caption(f"{r['tipo']} · {r['lugar']} · {fecha_corta(r['fecha'])} · "
+        st.caption(f"{L.tipo_texto(r)} · {r['lugar']} · {fecha_corta(r['fecha'])} · "
                    f"{r['vistos']} vecinos lo ven")
 
         if r["estado"] == "Resuelto":
@@ -608,6 +616,7 @@ def tabla_exportable(reportes, prio):
             "Título": r["titulo"],
             "Descripción": r["descripcion"],
             "Tipo de problema": r["tipo"],
+            "Detalle del tipo (si es Otro)": r.get("tipo_detalle", ""),
             "Lugar": r["lugar"],
             "Nivel de peligro": r["riesgo"],
             "Ubicación": r["sector"],
@@ -645,7 +654,7 @@ def tarjeta_municipal(r, nivel):
         st.markdown(f"**{r['titulo']}**  ·  {ICONO_NIVEL[nivel]}" if r["estado"] != "Resuelto"
                     else f"**{r['titulo']}**")
         stepper(r["estado"])
-        st.caption(f"{r['tipo']} · {r['lugar']} · {r['sector']} · {r['riesgo']} · "
+        st.caption(f"{L.tipo_texto(r)} · {r['lugar']} · {r['sector']} · {r['riesgo']} · "
                    f"{fecha_corta(r['fecha'])} · {r['vistos']} validaciones")
         if L.cuestionada(r):
             c = r["resolucion"]
