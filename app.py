@@ -10,7 +10,6 @@ from datetime import datetime
 from pathlib import Path
 
 import folium
-from folium.plugins import LocateControl
 from geopy.geocoders import Nominatim
 import pandas as pd
 import streamlit as st
@@ -204,9 +203,11 @@ def selector_mapa_interactivo():
     st.session_state.setdefault("punto_confirmado", False)
     st.session_state.setdefault("posicion_gps", None)  # Guarda la ubicación GPS para no perderla
 
+    paso1 = ("Escribe la dirección y pulsa *Buscar*, o pulsa el botón **Usar mi ubicación**."
+             if streamlit_geolocation is not None else "Escribe la dirección y pulsa *Buscar*.")
     st.markdown(
         "**¿Dónde está el problema?**\n\n"
-        "1. Escribe la dirección y pulsa *Buscar*, o activa tu ubicación por GPS.\n"
+        f"1. {paso1}\n"
         "2. Si el pin no quedó justo en el lugar, toca el mapa donde está el problema.\n"
         "3. Revisa que la dirección de abajo sea la correcta."
     )
@@ -226,12 +227,13 @@ def selector_mapa_interactivo():
 
     # Paso 1b: usar la ubicación del dispositivo
     if streamlit_geolocation is not None:
-        st.info("👇 **Opción alternativa de GPS:**")
         g1, g2 = st.columns([1, 4])
         with g1:
             geo = streamlit_geolocation()
         with g2:
-            st.caption("👈 **Presiona el icono de la izquierda** para obtener tu GPS rápido.")
+            st.markdown("**📍 Usar mi ubicación**")
+            st.caption("Presiona el ícono de la izquierda y acepta el permiso del navegador. "
+                       "Tu ubicación actual quedará como lugar del problema.")
         if geo and geo.get("latitude") is not None:
             punto = (geo["latitude"], geo["longitude"])
             if punto != st.session_state.get("ultima_geo"):
@@ -246,53 +248,6 @@ def selector_mapa_interactivo():
         location=[st.session_state.lat_sel, st.session_state.lon_sel],
         zoom_start=16 if confirmado else 12
     )
-
-    # Estilo del botón de geolocalización dentro del mapa
-    estilo_boton_mapa = """
-    <style>
-    .leaflet-control-locate {
-        border: none !important;
-        margin-top: 10px !important;
-        margin-left: 10px !important;
-    }
-    .leaflet-control-locate a {
-        background-color: #0284C7 !important;
-        color: white !important;
-        width: auto !important;
-        padding: 6px 14px !important;
-        height: 38px !important;
-        border-radius: 8px !important;
-        box-shadow: 0 4px 12px rgba(0,0,0,0.3) !important;
-        display: flex !important;
-        align-items: center !important;
-        gap: 8px !important;
-        text-decoration: none !important;
-        font-weight: bold !important;
-        font-size: 13px !important;
-        font-family: system-ui, -apple-system, sans-serif !important;
-    }
-    .leaflet-control-locate a::after {
-        content: "📍 USAR MI UBICACIÓN ACTUAL";
-        white-space: nowrap;
-        color: white !important;
-    }
-    .leaflet-control-locate a:hover {
-        background-color: #0369A1 !important;
-    }
-    .leaflet-control-locate span {
-        filter: brightness(0) invert(1);
-    }
-    </style>
-    """
-    m.get_root().header.add_child(folium.Element(estilo_boton_mapa))
-
-    LocateControl(
-        auto_start=False,
-        flyTo=True,
-        keepCurrentZoomLevel=False,
-        strings={"title": "Obtener mi ubicación GPS actual", "popup": "Te encuentras aquí"},
-        locateOptions={"enableHighAccuracy": True}
-    ).add_to(m)
 
     # 🔵 DIBUJA EL PUNTO AZUL GPS PERMANENTE (Si el usuario ya se geolocalizó)
     if st.session_state.posicion_gps:
