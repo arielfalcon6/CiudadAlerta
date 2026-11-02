@@ -232,8 +232,6 @@ def selector_mapa_interactivo():
             geo = streamlit_geolocation()
         with g2:
             st.markdown("**📍 Usar mi ubicación**")
-            st.caption("Presiona el ícono de la izquierda y acepta el permiso del navegador. "
-                       "Tu ubicación actual quedará como lugar del problema.")
         if geo and geo.get("latitude") is not None:
             punto = (geo["latitude"], geo["longitude"])
             if punto != st.session_state.get("ultima_geo"):
