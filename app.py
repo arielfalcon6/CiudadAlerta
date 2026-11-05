@@ -15,10 +15,23 @@ import pandas as pd
 import streamlit as st
 from streamlit_folium import st_folium
 
-try:  # botón "Mi ubicación": si el paquete no está instalado, la app funciona igual sin ese botón
-    from streamlit_geolocation import streamlit_geolocation
-except ImportError:
-    streamlit_geolocation = None
+from folium.plugins import LocateControl
+from branca.element import MacroElement
+from jinja2 import Template
+
+
+class UbicacionComoClic(MacroElement):
+    """Cuando el botón de ubicación del mapa encuentra al usuario, lo trata como un clic en el mapa.
+
+    Así el punto del reporte queda fijado igual que si el usuario hubiera tocado ese lugar:
+    la app ya sabe reaccionar a los clics (dirección, comuna, pin)."""
+    _template = Template("""
+        {% macro script(this, kwargs) %}
+            {{ this._parent.get_name() }}.on('locationfound', function(e) {
+                {{ this._parent.get_name() }}.fire('click', {latlng: e.latlng});
+            });
+        {% endmacro %}
+    """)
 
 import logica as L
 
@@ -203,8 +216,7 @@ def selector_mapa_interactivo():
     st.session_state.setdefault("punto_confirmado", False)
     st.session_state.setdefault("posicion_gps", None)  # Guarda la ubicación GPS para no perderla
 
-    paso1 = ("Escribe la dirección y pulsa *Buscar*, o pulsa el botón **Usar mi ubicación**."
-             if streamlit_geolocation is not None else "Escribe la dirección y pulsa *Buscar*.")
+    paso1 = "Escribe la dirección y pulsa *Buscar*, o pulsa el botón azul **Usar mi ubicación actual** del mapa."
     st.markdown(
         "**¿Dónde está el problema?**\n\n"
         f"1. {paso1}\n"
@@ -225,27 +237,60 @@ def selector_mapa_interactivo():
         else:
             st.warning("No encontré esa dirección. Prueba con calle, número y comuna, o toca el mapa.")
 
-    # Paso 1b: usar la ubicación del dispositivo
-    if streamlit_geolocation is not None:
-        g1, g2 = st.columns([1, 4])
-        with g1:
-            geo = streamlit_geolocation()
-        with g2:
-            st.markdown("**📍 Usar mi ubicación**")
-        if geo and geo.get("latitude") is not None:
-            punto = (geo["latitude"], geo["longitude"])
-            if punto != st.session_state.get("ultima_geo"):
-                st.session_state.ultima_geo = punto
-                st.session_state.posicion_gps = punto  # Se fija la posición GPS permanente
-                fijar_punto(*punto)
-                recargar_app()
-
     # Paso 2: el mapa
     confirmado = st.session_state.punto_confirmado
     m = folium.Map(
         location=[st.session_state.lat_sel, st.session_state.lon_sel],
         zoom_start=16 if confirmado else 12
     )
+
+    # Botón azul de ubicación dentro del mapa
+    estilo_boton_mapa = """
+    <style>
+    .leaflet-control-locate {
+        border: none !important;
+        margin-top: 10px !important;
+        margin-left: 10px !important;
+    }
+    .leaflet-control-locate a {
+        background-color: #0284C7 !important;
+        color: white !important;
+        width: auto !important;
+        padding: 6px 14px !important;
+        height: 38px !important;
+        border-radius: 8px !important;
+        box-shadow: 0 4px 12px rgba(0,0,0,0.3) !important;
+        display: flex !important;
+        align-items: center !important;
+        gap: 8px !important;
+        text-decoration: none !important;
+        font-weight: bold !important;
+        font-size: 13px !important;
+        font-family: system-ui, -apple-system, sans-serif !important;
+    }
+    .leaflet-control-locate a::after {
+        content: "📍 USAR MI UBICACIÓN ACTUAL";
+        white-space: nowrap;
+        color: white !important;
+    }
+    .leaflet-control-locate a:hover {
+        background-color: #0369A1 !important;
+    }
+    .leaflet-control-locate span {
+        filter: brightness(0) invert(1);
+    }
+    </style>
+    """
+    m.get_root().header.add_child(folium.Element(estilo_boton_mapa))
+
+    LocateControl(
+        auto_start=False,
+        flyTo=True,
+        keepCurrentZoomLevel=False,
+        strings={"title": "Usar mi ubicación actual como lugar del problema", "popup": "Te encuentras aquí"},
+        locateOptions={"enableHighAccuracy": True, "watch": False}  # una sola lectura, sin seguimiento
+    ).add_to(m)
+    UbicacionComoClic().add_to(m)  # al encontrarte, fija el punto del reporte como si lo hubieras tocado
 
     # 🔵 DIBUJA EL PUNTO AZUL GPS PERMANENTE (Si el usuario ya se geolocalizó)
     if st.session_state.posicion_gps:
