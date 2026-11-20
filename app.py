@@ -34,6 +34,8 @@ class UbicacionComoClic(MacroElement):
     """)
 
 import logica as L
+import clasificador as K
+from html import escape as esc
 
 # 1. Configuración de página siempre al inicio de Streamlit
 st.set_page_config(page_title="CiudadAlerta (prototipo)", page_icon="🏙️", layout="centered")
@@ -53,7 +55,9 @@ st.session_state.setdefault("ver", 0)       # para limpiar el formulario tras en
 st.session_state.setdefault("votos", set())  # evita votar dos veces en la sesión
 
 COLOR_ESTADO = {"Pendiente": "#E67E22", "En revisión": "#2E86C1",
-                "En reparación": "#8E44AD", "Resuelto": "#27AE60"}
+                "En reparación": "#8E44AD", "Resuelto": "#27AE60", "Rechazado": "#7F8C8D"}
+# Lo que ve el ciudadano (no distingue "en revisión" de "en reparación")
+COLOR_PUBLICO = {"Pendiente": "#E67E22", "En proceso": "#2E86C1", "Resuelto": "#27AE60", "Rechazado": "#7F8C8D"}
 ICONO_NIVEL = {"Alto": "🔴 Alto", "Medio": "🟠 Medio", "Bajo": "🟢 Bajo"}
 ORDEN_NIVEL = {"Alto": 0, "Medio": 1, "Bajo": 2}
 
@@ -93,17 +97,33 @@ def badge(texto, color):
             f'border-radius:10px;font-size:12px">{texto}</span>')
 
 
-def stepper(estado):
-    """Indicador de avance: Pendiente → En revisión → En reparación → Resuelto."""
-    actual = L.ESTADOS.index(estado)
+def _stepper_html(pasos, actual, color):
     html = '<div style="display:flex;gap:6px;margin:6px 0 4px">'
-    for k, e in enumerate(L.ESTADOS):
+    for k, e in enumerate(pasos):
         on = k <= actual
         html += (f'<div style="flex:1;text-align:center;padding:6px 2px;border-radius:6px;'
                  f'font-size:12px;font-weight:{600 if k == actual else 400};'
-                 f'background:{COLOR_ESTADO[estado] if on else "#E5E7E9"};'
+                 f'background:{color if on else "#E5E7E9"};'
                  f'color:{"white" if on else "#7F8C8D"}">{e}</div>')
     st.markdown(html + "</div>", unsafe_allow_html=True)
+
+
+def stepper(estado):
+    """Avance interno (autoridad): Pendiente → En revisión → En reparación → Resuelto, o Rechazado."""
+    if estado == "Rechazado":
+        _stepper_html(["Rechazado"], 0, COLOR_ESTADO["Rechazado"])
+    else:
+        _stepper_html(L.ESTADOS, L.ESTADOS.index(estado), COLOR_ESTADO[estado])
+
+
+def stepper_publico(estado):
+    """Avance que ve el ciudadano: Pendiente → En proceso → Resuelto, o Rechazado."""
+    pub = L.estado_publico(estado)
+    if pub == "Rechazado":
+        _stepper_html(["Rechazado"], 0, COLOR_PUBLICO[pub])
+    else:
+        pasos = ["Pendiente", "En proceso", "Resuelto"]
+        _stepper_html(pasos, pasos.index(pub), COLOR_PUBLICO[pub])
 
 
 def mostrar_media(ruta):
@@ -360,7 +380,7 @@ def render_resumen_reporte(r):
     st.write(f"**Lugar:** {r['lugar']}")
     st.write(f"**Nivel de riesgo:** {r['riesgo']}")
     st.write(f"**Ubicación:** {r['sector']}")
-    st.write(f"**Organismo asignado:** {L.ORGANISMOS.get(r['organismo'], r['organismo'])}")
+    st.write(f"**Estado:** {L.estado_publico(r['estado'])}")
     if r.get("descripcion"):
         st.write(f"**Descripción:** {r['descripcion']}")
     else:
@@ -390,6 +410,32 @@ def popup_confirmacion(r):
         render_resumen_reporte(r)
 
 
+def preguntas_arbol(v):
+    """Muestra una pregunta a la vez: la siguiente depende de la respuesta anterior (árbol de decisiones).
+
+    Devuelve (ruta, completo): la ruta recorrida y si ya se llegó al final del árbol."""
+    ruta, nodo, n = [], K.RAIZ, 1
+    while nodo:
+        info = K.NODOS[nodo]
+        titulo_pregunta(f"{n}. {info['pregunta']}")
+        if info.get("ayuda"):
+            st.caption(info["ayuda"])
+        textos = [o["texto"] for o in info["opciones"]]
+        # La clave incluye el camino recorrido: si el vecino cambia una respuesta anterior, las
+        # preguntas siguientes se reinician en vez de arrastrar respuestas de otro camino.
+        camino = "".join(f"{a}{b}" for a, b in ruta)
+        sel = st.radio(info["pregunta"], textos, index=None, key=f"arb_{nodo}_{camino}_{v}",
+                       label_visibility="collapsed")
+        if sel is None:
+            return ruta, False
+        i = textos.index(sel)
+        if info["opciones"][i].get("aviso"):
+            st.warning(info["opciones"][i]["aviso"])
+        ruta.append((nodo, i))
+        nodo, n = info["opciones"][i]["siguiente"], n + 1
+    return ruta, True
+
+
 def formulario():
     v = st.session_state.ver
 
@@ -400,38 +446,29 @@ def formulario():
     titulo_pregunta("📍 Ubicación del problema")
     selector_mapa_interactivo()
 
-    # 1. ¿Qué tipo de problema es?
-    titulo_pregunta("1. ¿Qué tipo de problema es?")
-    tipo = st.radio("Tipo de problema", L.TIPOS, index=None, key=f"tipo_{v}", label_visibility="collapsed")
+    # PREGUNTAS DINÁMICAS (árbol de decisiones): cada pregunta depende de la respuesta anterior
+    ruta, completo = preguntas_arbol(v)
+    tipo = K.tipo_de(ruta) if completo else None
+    lugar = K.lugar_de(ruta) if completo else None
     tipo_otro = ""
-    if tipo == "Otro":
-        tipo_otro = st.text_input("¿Qué tipo de problema es? *", max_chars=40, key=f"tipo_otro_{v}",
-                                  placeholder="Ej.: árbol caído, poste inclinado, mobiliario dañado")
+    if completo and tipo == "Otro":
+        tipo_otro = st.text_input("Cuéntanos qué tipo de problema es *", max_chars=40, key=f"tipo_otro_{v}",
+                                  placeholder="Ej.: árbol caído, mobiliario dañado")
 
-    # 2. ¿Dónde está?
-    titulo_pregunta("2. ¿Dónde está?")
-    st.caption("**Avenida principal:** varias pistas y mucho tráfico. "
-               "**Ruta o camino interurbano:** carretera o camino fuera de la ciudad. "
-               "**Edificio o monumento histórico:** construcción patrimonial; se envía al CMN y, si no es "
-               "un Monumento Nacional declarado, la municipalidad puede reasignarlo.")
-    lugar = st.radio("Lugar del problema", L.LUGARES, index=None, key=f"lugar_{v}", label_visibility="collapsed")
-    if tipo and lugar:
-        st.info(f"📨 Tu reporte se enviará a: **{L.ORGANISMOS[L.derivar_organismo(tipo, lugar)]}**")
-
-    # 3. ¿Hay peligro para las personas?
-    titulo_pregunta("3. ¿Hay peligro para las personas?")
+    # ¿Hay peligro para las personas?
+    titulo_pregunta("¿Hay peligro para las personas?")
     riesgo = st.radio("Nivel de riesgo", L.RIESGOS, index=None, horizontal=True, key=f"riesgo_{v}", label_visibility="collapsed")
     if riesgo == "Peligro inmediato":
         st.error("🚨 Si hay riesgo inmediato para las personas, llama primero al **133** (Carabineros), "
                  "**132** (Bomberos) o **131** (SAMU). Esta aplicación no es un canal de emergencia.")
     
     # 4. Cuéntanos más (solo el título es obligatorio)
-    titulo_pregunta("4. Cuéntanos más (solo el título es obligatorio)")
+    titulo_pregunta("Cuéntanos más (solo el título es obligatorio)")
     titulo = st.text_input("Título *", max_chars=60, key=f"titulo_{v}")
     descripcion = st.text_area("Descripción (opcional)", max_chars=300, key=f"desc_{v}")
     
     # 5. ADJUNTAR EVIDENCIA (CONTROL TOTAL DE CÁMARA BAJO DEMANDA)
-    titulo_pregunta("5. Adjuntar evidencia (opcional)")
+    titulo_pregunta("Adjuntar evidencia (opcional)")
     
     key_foto_cam = f"foto_camara_guardada_{v}"
     key_mostrar_cam = f"mostrar_camara_{v}"
@@ -482,12 +519,10 @@ def formulario():
     faltan = []
     if sin_punto:
         faltan.append("el lugar en el mapa")
-    if not tipo:
-        faltan.append("el tipo de problema")
+    if not completo:
+        faltan.append("terminar las preguntas del problema")
     elif tipo == "Otro" and not tipo_otro.strip():
         faltan.append("qué tipo de problema es")
-    if not lugar:
-        faltan.append("dónde está")
     if not riesgo:
         faltan.append("si hay peligro")
     if not titulo.strip():
@@ -503,7 +538,7 @@ def formulario():
 
     if enviar:
         if not (tipo and lugar and riesgo and titulo.strip()):
-            st.error("Por favor responde las 3 primeras preguntas y escribe un título.")
+            st.error("Por favor responde las preguntas del problema y escribe un título.")
             return
         if tipo == "Otro" and not tipo_otro.strip():
             st.error("Escribe qué tipo de problema es (elegiste «Otro»).")
@@ -523,7 +558,7 @@ def formulario():
             titulo, descripcion, tipo, lugar, riesgo, 
             sector=dir_final, media=ruta,
             lat=st.session_state.lat_sel, lon=st.session_state.lon_sel,
-            tipo_detalle=tipo_otro
+            tipo_detalle=tipo_otro, clasificacion=K.clasificar(ruta)
         )
         
         st.session_state[key_foto_cam] = None
@@ -548,9 +583,11 @@ def tarjeta_ciudadano(r):
     votos = st.session_state.votos
     with st.container(border=True):
         st.markdown(f"**{r['titulo']}**")
-        st.markdown(badge(r["estado"], COLOR_ESTADO[r["estado"]]) + " "
-                    + badge(L.ORGANISMOS[r["organismo"]], "#5D6D7E"), unsafe_allow_html=True)
-        stepper(r["estado"])
+        pub = L.estado_publico(r["estado"])
+        st.markdown(badge(pub, COLOR_PUBLICO[pub]), unsafe_allow_html=True)
+        stepper_publico(r["estado"])
+        if r["estado"] == "Rechazado":
+            st.caption(f"Motivo: {r.get('motivo_rechazo', 'sin detalle')}")
         st.markdown(linea_ubicacion(r))
         st.caption(f"{L.tipo_texto(r)} · {r['lugar']} · {fecha_corta(r['fecha'])} · "
                    f"{r['vistos']} vecinos lo ven · ID: `{r['id']}`")
@@ -565,7 +602,7 @@ def tarjeta_ciudadano(r):
                 L.votar_resolucion(r, True); votos.add((r["id"], "res")); recargar_app()
             if b2.button("No, sigue el problema", key=f"no_{r['id']}", disabled=ya):
                 L.votar_resolucion(r, False); votos.add((r["id"], "res")); recargar_app()
-        elif st.button("👁 Yo también lo veo", key=f"v_{r['id']}",
+        elif r["estado"] != "Rechazado" and st.button("👁 Yo también lo veo", key=f"v_{r['id']}",
                        disabled=(r["id"], "v") in votos):
             L.validar_visto(r); votos.add((r["id"], "v")); recargar_app()
 
@@ -593,12 +630,31 @@ def comuna_de_reporte(r):
     return c if c in COMUNAS_OFICIALES else SIN_COMUNA
 
 
+def mapa_estados(reps):
+    """Mapa del ciudadano: cada punto se colorea según esté pendiente, en proceso, resuelto o rechazado."""
+    st.markdown("**Estado de los reportes:** 🟠 Pendiente &nbsp;|&nbsp; 🔵 En proceso &nbsp;|&nbsp; "
+                "🟢 Resuelto &nbsp;|&nbsp; ⚪ Rechazado", unsafe_allow_html=True)
+    puntos = [r for r in reps if "lat" in r and "lon" in r][:300]
+    if not puntos:
+        return
+    centro = [sum(r["lat"] for r in puntos) / len(puntos), sum(r["lon"] for r in puntos) / len(puntos)]
+    m = folium.Map(location=centro, zoom_start=12)
+    for r in puntos:
+        pub = L.estado_publico(r["estado"])
+        folium.CircleMarker(
+            location=[r["lat"], r["lon"]], radius=8, color=COLOR_PUBLICO[pub], fill=True,
+            fill_color=COLOR_PUBLICO[pub], fill_opacity=0.85,
+            popup=f"<b>{esc(r['titulo'])}</b><br>Estado: {pub}", tooltip=f"{esc(r['titulo'])} ({pub})").add_to(m)
+    st_folium(m, width="100%", height=350, returned_objects=[],
+              key=f"mapa_reportes_ciudadano_{abs(hash(tuple(r['id'] for r in puntos)))}")
+
+
 def lista_reportes(reps):
     """Pantalla 'Ver y validar': buscador, filtros y lista paginada."""
     st.text_input("🔎 Buscar mi reporte (escribe y presiona Enter)", key="buscar_reporte",
                   placeholder="ID del reporte, dirección o título")
     f1, f2, f3 = st.columns(3)
-    estado = f1.selectbox("Estado", ["Todos"] + L.ESTADOS, key="filtro_estado")
+    estado = f1.selectbox("Estado", ["Todos", "Pendiente", "En proceso", "Resuelto", "Rechazado"], key="filtro_estado")
     tipo = f2.selectbox("Tipo de problema", ["Todos"] + L.TIPOS, key="filtro_tipo")
     conteo = {}
     for r in reps:
@@ -611,7 +667,7 @@ def lista_reportes(reps):
     q = st.session_state.get("buscar_reporte", "").strip().lower()
 
     def coincide(r):
-        if estado != "Todos" and r["estado"] != estado:
+        if estado != "Todos" and L.estado_publico(r["estado"]) != estado:
             return False
         if tipo != "Todos" and r["tipo"] != tipo:
             return False
@@ -623,6 +679,7 @@ def lista_reportes(reps):
         return True
 
     filtrados = [r for r in reps if coincide(r)]
+    mapa_estados(filtrados)
 
     firma = (q, estado, tipo, comuna)  # si cambia algún filtro, se vuelve a mostrar desde el principio
     if st.session_state.get("firma_lista") != firma:
@@ -688,7 +745,7 @@ def tabla_exportable(reportes, prio):
     filas = []
     for r in reportes:
         foco = prio.get((r["tipo"], r["sector"]))
-        abierto = r["estado"] != "Resuelto" and foco is not None
+        abierto = r["estado"] not in ("Resuelto", "Rechazado") and foco is not None
         c = r["resolucion"]
         filas.append({
             "ID": r["id"],
@@ -704,6 +761,10 @@ def tabla_exportable(reportes, prio):
             "Latitud": round(r["lat"], 5) if "lat" in r else None,
             "Longitud": round(r["lon"], 5) if "lon" in r else None,
             "Organismo": L.ORGANISMOS[r["organismo"]],
+            "Coincidencia con organismos": "; ".join(f"{L.ORGANISMOS[k]} {p}%" for k, p in L.coincidencias_de(r).items()),
+            "Confianza de la clasificación": r.get("confianza", ""),
+            "Razones de la coincidencia": " | ".join(f"{L.ORGANISMOS[k]}: " + " ".join(t) for k, t in L.razones_de(r).items()),
+            "Respuestas del vecino": " | ".join(f"{x['pregunta']} {x['respuesta']}" for x in r.get("respuestas", [])),
             "Estado": r["estado"],
             "Prioridad del foco": foco["nivel"] if abierto else "",
             "Pendiente del foco": foco["pendiente"] if abierto else None,
@@ -729,26 +790,52 @@ def nombre_csv(*partes):
     return f"{base}_{datetime.now():%Y-%m-%d}.csv"
 
 
+def bloque_coincidencias(r):
+    """SOLO AUTORIDAD: porcentaje de coincidencia con cada organismo y las razones."""
+    coinc = L.coincidencias_de(r)
+    if r.get("confianza") == "Baja":
+        st.warning("Clasificación incierta: conviene revisar a qué organismo derivar este reporte.")
+    for k, p in coinc.items():
+        st.progress(p / 100, text=f"{L.ORGANISMOS[k]} · {p}% de coincidencia")
+    with st.expander("¿Por qué coincide? (solo autoridad)"):
+        for k, p in coinc.items():
+            st.markdown(f"**{L.ORGANISMOS[k]} · {p}%**")
+            for t in L.razones_de(r).get(k, []):
+                st.markdown(f"- {t}")
+        st.markdown("**Respuestas del vecino**")
+        for x in r.get("respuestas", []):
+            st.markdown(f"- {x['pregunta']} → {x['respuesta']}")
+        if r.get("historial_interno"):
+            st.markdown("**Historial interno**")
+            for h in r["historial_interno"]:
+                st.caption(h)
+
+
 def tarjeta_municipal(r, nivel):
     with st.container(border=True):
-        st.markdown(f"**{r['titulo']}**  ·  {ICONO_NIVEL[nivel]}" if r["estado"] != "Resuelto"
+        st.markdown(f"**{r['titulo']}**  ·  {ICONO_NIVEL[nivel]}" if r["estado"] not in ("Resuelto", "Rechazado")
                     else f"**{r['titulo']}**")
         stepper(r["estado"])
         st.caption(f"{L.tipo_texto(r)} · {r['lugar']} · {r['sector']} · {r['riesgo']} · "
                    f"{fecha_corta(r['fecha'])} · {r['vistos']} validaciones")
+        if r["estado"] == "Rechazado":
+            st.caption(f"Motivo del rechazo: {r.get('motivo_rechazo', 'sin detalle')}")
+        bloque_coincidencias(r)
         if L.cuestionada(r):
             c = r["resolucion"]
             st.error(f"Los vecinos cuestionan esta resolución ({c['si']} sí / {c['no']} no). "
                      "Considera reabrir el reporte.")
         c1, c2, c3 = st.columns([2, 2, 1])
-        estado = c1.selectbox("Estado", L.ESTADOS, index=L.ESTADOS.index(r["estado"]),
+        estado = c1.selectbox("Estado", L.ESTADOS_TODOS, index=L.ESTADOS_TODOS.index(r["estado"]),
                               key=f"e_{r['id']}")
         orgs = list(L.ORGANISMOS)
+        motivo = c1.selectbox("Motivo del rechazo", L.MOTIVOS_RECHAZO, key=f"mr_{r['id']}") if estado == "Rechazado" else None
         org = c2.selectbox("Organismo", orgs, index=orgs.index(r["organismo"]),
-                           format_func=L.ORGANISMOS.get, key=f"o_{r['id']}")
+                           format_func=lambda k: f"{L.ORGANISMOS[k]} ({L.coincidencias_de(r).get(k, 0)}%)",
+                           key=f"o_{r['id']}")
         c3.write("")
         if c3.button("Aplicar", key=f"a_{r['id']}"):
-            L.cambiar_estado(r, estado, org); recargar_app()
+            L.cambiar_estado(r, estado, org, motivo); recargar_app()
         with st.expander("Descripción y evidencia"):
             st.write(r["descripcion"] or "_Sin descripción._")
             mostrar_media(r["media"])
@@ -761,7 +848,7 @@ def vista_municipalidad():
     reps = L.cargar_todos()
     prio = L.prioridades(reps)
     nivel = lambda r: prio.get((r["tipo"], r["sector"]), {}).get("nivel", "Bajo")
-    abiertos = [r for r in reps if r["estado"] != "Resuelto"]
+    abiertos = [r for r in reps if r["estado"] not in ("Resuelto", "Rechazado")]
 
     # 1. Métricas generales
     m = st.columns(4)
@@ -803,7 +890,7 @@ def vista_municipalidad():
     for tab, k in zip(tabs, claves):
         with tab:
             items = sorted((r for r in reps if r["organismo"] == k),
-                           key=lambda r: (r["estado"] == "Resuelto", ORDEN_NIVEL[nivel(r)], r["fecha"]))
+                           key=lambda r: (r["estado"] in ("Resuelto", "Rechazado"), ORDEN_NIVEL[nivel(r)], r["fecha"]))
 
             comuna_sel = "Santiago"
             if k == "MUNI":
@@ -817,7 +904,7 @@ def vista_municipalidad():
                 for r in items:
                     c = comuna_de(r)
                     por_comuna[c] = por_comuna.get(c, 0) + 1
-                    if r["estado"] != "Resuelto":
+                    if r["estado"] not in ("Resuelto", "Rechazado"):
                         abiertos_comuna[c] = abiertos_comuna.get(c, 0) + 1
 
                 comuna_sel = st.selectbox(
@@ -852,7 +939,7 @@ def vista_municipalidad():
                        f" · se envía a {L.ORGANISMOS[k]}; la autoridad registra el avance informado."))
 
             # 🗺️ MAPA INTERACTIVO CON COLORES SEGÚN ESTADO DE REPARACIÓN
-            abiertos_filtrados = [r for r in items if r["estado"] != "Resuelto"]
+            abiertos_filtrados = [r for r in items if r["estado"] not in ("Resuelto", "Rechazado")]
             
             with st.expander(f"🗺️ Mapa de reportes abiertos ({len(abiertos_filtrados)})", expanded=True):
                 st.markdown(
@@ -930,28 +1017,24 @@ corresponde) y los vecinos no saben si su reporte avanza. Esto hace lenta la ges
 - **Municipalidad / Autoridad:** controla el avance de cada reporte, revisa prioridades y gestiona las carpetas por organismo.
 
 ### Flujo del ciudadano (rápido e intuitivo)
-1. **Tres preguntas con alternativas:** tipo de problema, lugar y nivel de peligro. Esto permite categorizar automáticamente.
+1. **Preguntas que se adaptan a cada respuesta (árbol de decisiones):** empiezan por dónde está el problema y siguen según lo que se responde (de 2 a 4 preguntas), más el nivel de peligro. El vecino nunca ve a qué organismo le corresponde.
 2. **Título** (único campo obligatorio), **descripción** y **foto o video** opcionales. Estos datos son informativos para otros vecinos y para la municipalidad; no se usan para categorizar.
 3. La ubicación se selecciona interactivamente mediante GPS o marcador en mapa.
 
 ### Seguimiento de avance
-Cada reporte tiene cuatro estados: **Pendiente → En revisión → En reparación → Resuelto**.
+Internamente cada reporte pasa por **Pendiente → En revisión → En reparación → Resuelto**, o puede ser **Rechazado** con un motivo. El ciudadano ve solo: Pendiente, En proceso, Resuelto o Rechazado, y los colores del mapa.
 **Solo la municipalidad cambia el estado.** Cuando un reporte pasa a *Resuelto*, los vecinos ven la
 pregunta *"La municipalidad dice que esto fue resuelto, ¿es así?"* y responden Sí/No. Si hay al menos
 3 respuestas y predominan los "No", la municipalidad recibe una alerta de **resolución cuestionada**.
 
-### Derivación automática por organismo
-Según las respuestas, cada reporte se guarda en la carpeta del organismo que debe repararlo:
+### Coincidencia con organismos (solo autoridad)
+Cada respuesta del vecino suma puntos a uno o más organismos (municipalidad, SERVIU, MOP, CMN, empresa sanitaria,
+distribuidora eléctrica). Con eso la autoridad ve, por ejemplo, *"80% municipalidad, 20% SERVIU"*, una lista de las
+**razones** de cada coincidencia (base legal o criterio), las respuestas del vecino y un nivel de confianza.
+Si la clasificación es incierta se advierte para que la autoridad la revise. Los porcentajes son un puntaje del
+prototipo, no una probabilidad estadística. **El ciudadano no ve esta información**: solo reporta, valida y sigue el estado.
 
-| Condición | Organismo |
-|---|---|
-| Lugar = edificio o monumento histórico | CMN |
-| Problema = agua o alcantarillado | Empresa sanitaria |
-| Pavimento en avenida principal | SERVIU |
-| Pavimento en ruta o camino interurbano | MOP (Vialidad) |
-| Cualquier otro caso | Municipalidad |
-
-La municipalidad puede reasignar un reporte si la derivación automática no fue correcta.
+La autoridad puede reasignar un reporte a otro organismo; cada organismo tiene su carpeta.
 
 ### Prioridad (visión municipalidad)
 Se agrupan los reportes sin resolver en **focos** (mismo tipo de problema en el mismo sector). Para cada foco se

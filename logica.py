@@ -11,12 +11,25 @@ import uuid
 from datetime import datetime, timedelta
 from pathlib import Path
 
+import clasificador as K
+
 BASE = Path(__file__).parent
 CARPETAS = BASE / "carpetas"
 UPLOADS = BASE / "uploads"
 
 # ---------------------------------------------------------------- catálogos
 ESTADOS = ["Pendiente", "En revisión", "En reparación", "Resuelto"]
+ESTADOS_TODOS = ESTADOS + ["Rechazado"]  # Rechazado: la autoridad descarta el reporte y deja un motivo
+MOTIVOS_RECHAZO = ["Reporte duplicado", "Información insuficiente", "Contenido inapropiado",
+                   "No es un daño de infraestructura"]
+ESTADO_PUBLICO = {"Pendiente": "Pendiente", "En revisión": "En proceso", "En reparación": "En proceso",
+                  "Resuelto": "Resuelto", "Rechazado": "Rechazado"}
+
+
+def estado_publico(estado):
+    """Estado que ve el ciudadano: Pendiente, En proceso, Resuelto o Rechazado."""
+    return ESTADO_PUBLICO.get(estado, estado)
+
 
 TIPOS = ["Pavimento o vereda", "Alumbrado público", "Plaza o área verde",
          "Agua o alcantarillado", "Basura o aseo", "Semáforos o señalización",
@@ -26,7 +39,8 @@ LUGARES = ["Calle o pasaje de barrio", "Avenida principal", "Ruta o camino inter
 RIESGOS = ["Sin peligro", "Posible peligro", "Peligro inmediato"]
 
 ORGANISMOS = {"MUNI": "Municipalidad", "SERVIU": "SERVIU", "MOP": "MOP (Vialidad)",
-              "CMN": "CMN (Monumentos Nacionales)", "SANITARIA": "Empresa sanitaria"}
+              "CMN": "CMN (Monumentos Nacionales)", "SANITARIA": "Empresa sanitaria",
+              "DISTRIBUIDORA": "Distribuidora eléctrica"}
 
 SECTORES = {  # "GPS" simulado: coordenadas aproximadas
     "Barrio Yungay": (-33.4403, -70.6720), "Barrio Brasil": (-33.4426, -70.6740),
@@ -90,9 +104,26 @@ def _log(r, texto, cuando=None):
     r["historial"].append(f"{(cuando or datetime.now()):%d/%m %H:%M} · {texto}")
 
 
+def _log_interno(r, texto, cuando=None):
+    """Historial que solo ve la autoridad (derivaciones y reasignaciones)."""
+    r.setdefault("historial_interno", []).append(f"{(cuando or datetime.now()):%d/%m %H:%M} · {texto}")
+
+
+def coincidencias_de(r):
+    """Coincidencia (%) por organismo. Los reportes antiguos, sin ese dato, quedan 100% en su organismo."""
+    return r.get("coincidencias") or {r["organismo"]: 100}
+
+
+def razones_de(r):
+    return r.get("razones") or {r["organismo"]: ["Clasificación anterior al árbol de decisiones."]}
+
+
 def crear_reporte(titulo, descripcion, tipo, lugar, riesgo, sector="Ubicación en mapa",
-                  media=None, fecha=None, estado="Pendiente", lat=None, lon=None, tipo_detalle=""):
+                  media=None, fecha=None, estado="Pendiente", lat=None, lon=None, tipo_detalle="",
+                  clasificacion=None):
     fecha = fecha or datetime.now()
+    if clasificacion is None:  # reportes de ejemplo: se deduce un camino del árbol a partir de tipo y lugar
+        clasificacion = K.clasificar(K.desde_tipo_lugar(tipo, lugar))
     
     # Si no se pasan coordenadas exactas, usa la base del sector o Santiago
     if lat is None or lon is None:
@@ -104,25 +135,36 @@ def crear_reporte(titulo, descripcion, tipo, lugar, riesgo, sector="Ubicación e
         "id": uuid.uuid4().hex[:8], "titulo": titulo.strip(), "descripcion": descripcion.strip(),
         "media": media, "tipo": tipo, "tipo_detalle": tipo_detalle.strip(), "lugar": lugar, "riesgo": riesgo, "sector": sector,
         "lat": lat, "lon": lon,
-        "organismo": derivar_organismo(tipo, lugar), "estado": estado,
+        "organismo": clasificacion["organismo"], "estado": estado,
+        "coincidencias": clasificacion["coincidencias"], "razones": clasificacion["razones"],
+        "respuestas": clasificacion["respuestas"], "confianza": clasificacion["confianza"],
         "fecha": fecha.isoformat(timespec="seconds"),
         "vistos": 0, "resolucion": {"si": 0, "no": 0}, "evidencias": [], "historial": [],
     }
-    _log(r, f"Reporte creado y derivado a {ORGANISMOS[r['organismo']]}", fecha)
+    _log(r, "Reporte creado", fecha)
+    top = r["organismo"]
+    _log_interno(r, f"Clasificado automáticamente: {ORGANISMOS[top]} {r['coincidencias'][top]}% "
+                    f"(confianza {r['confianza'].lower()})", fecha)
     guardar(r)
     return r
 
 
 # ---------------------------------------------------------------- acciones
-def cambiar_estado(r, estado=None, organismo=None):
-    """Acción de la municipalidad: actualizar avance y/o reasignar organismo."""
+def cambiar_estado(r, estado=None, organismo=None, motivo=None):
+    """Acción de la autoridad: actualizar avance, rechazar con motivo y/o reasignar organismo."""
     if estado and estado != r["estado"]:
         r["estado"] = estado
         r["resolucion"] = {"si": 0, "no": 0}  # nueva ronda de verificación ciudadana
-        _log(r, f"Estado actualizado a '{estado}'")
+        _log(r, f"Estado actualizado a '{estado_publico(estado)}'")
+        _log_interno(r, f"Estado interno: '{estado}'")
+        if estado == "Rechazado":
+            r["motivo_rechazo"] = motivo or MOTIVOS_RECHAZO[0]
+            _log(r, f"Motivo: {r['motivo_rechazo']}")
+        else:
+            r.pop("motivo_rechazo", None)
     if organismo and organismo != r["organismo"]:
         r["organismo"] = organismo
-        _log(r, f"Reasignado a {ORGANISMOS[organismo]}")
+        _log_interno(r, f"Reasignado manualmente a {ORGANISMOS[organismo]}")
     guardar(r)
 
 
@@ -180,7 +222,7 @@ def prioridades(reportes, ahora=None):
         ahora = max(datetime.fromisoformat(r["fecha"]) for r in reportes)
     focos, con_peligro = {}, set()
     for r in reportes:
-        if r["estado"] != "Resuelto":
+        if r["estado"] not in ("Resuelto", "Rechazado"):
             clave = (r["tipo"], r["sector"])
             focos.setdefault(clave, []).append(datetime.fromisoformat(r["fecha"]))
             if r.get("riesgo") == "Peligro inmediato":
@@ -250,6 +292,15 @@ def sembrar_demo():
         r["resolucion"] = {"si": si, "no": no}
         _log(r, "Estado actualizado a 'Resuelto'")
         guardar(r)
+
+    rechazados = [
+        ("Basura o aseo", "Plaza o parque", "Plaza de Armas 1, Santiago", "Foto sin relación con el reporte", 3, "Contenido inapropiado", -33.4372, -70.6506),
+        ("Pavimento o vereda", "Calle o pasaje de barrio", "Av. Bernardo O'Higgins 1450, Santiago", "Hoyo en la calzada (repetido)", 2, "Reporte duplicado", -33.4452, -70.6620),
+    ]
+    for tipo, lugar, sector, titulo, dias, motivo, lat, lon in rechazados:
+        r = crear_reporte(titulo, "", tipo, lugar, "Sin peligro", sector,
+                          fecha=ahora - timedelta(days=dias), lat=lat, lon=lon)
+        cambiar_estado(r, "Rechazado", motivo=motivo)
 
 
 def reiniciar_demo():
